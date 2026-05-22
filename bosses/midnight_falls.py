@@ -458,18 +458,24 @@ class MidnightFalls:
     # ── Phase 3 ──────────────────────────────────────────────────────────────
 
     def _classify_p3_wipe(self, wipe_cluster, wipe_death_ids, mechanic_counts, wipe_time, damage_events, fight_start, abilities, fight_deaths, tank_ids):
-        # Constellation kills crystal holder → instant cascade of ambient/light's end deaths
-        # Only check if the FIRST non-tank death is constellation (later ones are incidental)
-        first_non_tank = next((d for d in wipe_cluster if d["player_id"] not in tank_ids), None)
-        if first_non_tank and first_non_tank["category"] == "dark_constellation" and len(wipe_cluster) >= 3:
-            rapid_ambient = [d for d in wipe_cluster
-                             if d["fight_relative_ms"] > first_non_tank["fight_relative_ms"]
-                             and d["fight_relative_ms"] - first_non_tank["fight_relative_ms"] <= 2000
-                             and d["category"] in ("ambient", "lights_end")]
-            if len(rapid_ambient) >= 2:
+        # Constellation kills crystal holder → cascade of light's end deaths.
+        # The constellation death may be inside the wipe cluster OR just before it
+        # (LE dot ticks over 15-20s, pushing the constellation death outside the window).
+        any_le = mechanic_counts.get("lights_end", 0) >= 1
+        if any_le:
+            le_deaths = [d for d in wipe_cluster if d["category"] == "lights_end"]
+            first_le_ms = min(d["fight_relative_ms"] for d in le_deaths) if le_deaths else wipe_time
+            constellation_trigger = next(
+                (d for d in fight_deaths
+                 if d["category"] == "dark_constellation"
+                 and d["player_id"] not in tank_ids
+                 and d["fight_relative_ms"] <= first_le_ms + 2000),
+                None,
+            )
+            if constellation_trigger:
                 label, desc = _get_wipe_label("lights_end_constellation")
                 return WipeInfo("lights_end_constellation", label,
-                                f"{desc} ({first_non_tank['player_name']} killed by constellation)",
+                                f"{desc} ({constellation_trigger['player_name']} killed by constellation)",
                                 wipe_time), wipe_death_ids
 
         if mechanic_counts.get("lights_end", 0) >= 3:
@@ -542,13 +548,20 @@ class MidnightFalls:
                                 wipe_time), wipe_death_ids
 
         # If Light's End is in the wipe cluster AND there's a clear crystal sub-cause
-        # (trigger mechanic death or damage nearby), let the phase classifier handle it
+        # (trigger mechanic death or damage nearby), let the phase classifier handle it.
+        # The trigger death may be OUTSIDE the wipe cluster (e.g., constellation kills
+        # crystal holder, then LE dot ticks over 15-20s killing everyone — the
+        # constellation death is too early for the cluster window).
         if mechanic_counts.get("lights_end", 0) >= 1:
             trigger_cats = {"glaive", "beam", "starsplinter", "criticality", "dark_constellation"}
             if any(d["category"] in trigger_cats for d in wipe_cluster):
                 return None
             le_deaths = [d for d in wipe_cluster if d["category"] == "lights_end"]
             if le_deaths:
+                first_le_ms = min(d["fight_relative_ms"] for d in le_deaths)
+                if any(d["category"] in trigger_cats and d["fight_relative_ms"] <= first_le_ms + 2000
+                       for d in fight_deaths):
+                    return None
                 le_time = min(d["timestamp_ms"] for d in le_deaths)
                 window_start = le_time - 10_000
                 for e in damage_events:
