@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: cause-of-death
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: WCL_CLIENT_ID
+        sync: false
+      - key: WCL_CLIENT_SECRET
+        sync: false
+      - key: TWITCH_CHANNEL
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.12.0
