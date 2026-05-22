@@ -542,8 +542,11 @@ class MidnightFalls:
                                 wipe_time), wipe_death_ids
 
         # If Light's End is in the wipe cluster AND there's a clear crystal sub-cause
-        # (glaive/beam/etc nearby), let the phase classifier handle it — not attrition
+        # (trigger mechanic death or damage nearby), let the phase classifier handle it
         if mechanic_counts.get("lights_end", 0) >= 1:
+            trigger_cats = {"glaive", "beam", "starsplinter", "criticality", "dark_constellation"}
+            if any(d["category"] in trigger_cats for d in wipe_cluster):
+                return None
             le_deaths = [d for d in wipe_cluster if d["category"] == "lights_end"]
             if le_deaths:
                 le_time = min(d["timestamp_ms"] for d in le_deaths)
@@ -552,7 +555,7 @@ class MidnightFalls:
                     if window_start <= e["timestamp"] <= le_time:
                         aname = abilities.get(e.get("abilityGameID"), {}).get("name", "")
                         cat = _categorize(aname)
-                        if cat in ("glaive", "beam", "starsplinter", "criticality", "dark_constellation"):
+                        if cat in trigger_cats:
                             return None
 
         # Memory game + early deaths = attrition drove the memory game failure
@@ -563,14 +566,17 @@ class MidnightFalls:
                             f"Early deaths left raid unable to handle memory game — {n} killed by Dissonance ({len(fight_deaths)} total deaths)",
                             wipe_time), wipe_death_ids
 
-        # Standard attrition: diverse early deaths + no dominant mechanic in wipe cluster
+        # Standard attrition: multiple diverse early deaths + no dominant mechanic in wipe cluster
+        # 1 early death is normal raiding — only flag attrition with 2+ early deaths
+        if len(early_deaths) < 2:
+            return None
+
         non_ambient = {k: v for k, v in mechanic_counts.items() if k not in ("ambient", "unknown")}
         cluster_size = max(len(wipe_cluster), 1)
         top_count = max(non_ambient.values(), default=0)
         dominant_fraction = top_count / cluster_size
 
-        threshold = 0.6 if len(early_deaths) >= 2 else 0.4
-        if dominant_fraction > threshold:
+        if dominant_fraction >= 0.5:
             return None
 
         label, desc = _get_wipe_label("attrition")

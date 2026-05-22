@@ -74,7 +74,7 @@ def analyze(wcl_url: str, vod_url: str | None = None, channel: str | None = None
             vod_time_str = ""
             if seg:
                 vod_secs = int((death_time_utc - seg["start"]).total_seconds()) + stream_delay_s
-                vod_url_str = vod.make_timestamp_url(seg["platform"], seg["video_id"], max(0, vod_secs - 10))
+                vod_url_str = vod.make_timestamp_url(seg["platform"], seg["video_id"], max(0, vod_secs - 5))
                 vod_time_str = vod.fmt_hms(vod_secs)
 
             death_list.append({
@@ -100,7 +100,7 @@ def analyze(wcl_url: str, vod_url: str | None = None, channel: str | None = None
             wipe_vod_time = ""
             if seg:
                 wipe_secs = int((wipe_time_utc - seg["start"]).total_seconds()) + stream_delay_s
-                wipe_vod_url = vod.make_timestamp_url(seg["platform"], seg["video_id"], max(0, wipe_secs - 10))
+                wipe_vod_url = vod.make_timestamp_url(seg["platform"], seg["video_id"], max(0, wipe_secs - 5))
                 wipe_vod_time = vod.fmt_hms(wipe_secs)
 
             wipe_data = {
