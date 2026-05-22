@@ -48,6 +48,7 @@ MECHANIC_PATTERNS: dict[str, list[str]] = {
     "stellar_implosion":  ["stellar implosion"],
     "dark_archangel":     ["dark archangel"],
     "black_tide":         ["black tide"],
+    "enrage":             ["heaven and hell", "midnight perpetual"],
 }
 
 AMBIENT_PATTERNS = [
@@ -79,6 +80,7 @@ DEATH_LABELS: dict[str, tuple[str, str]] = {
     "stellar_implosion":  ("Missed Group Soak", "Killed by Stellar Implosion — group soak not covered"),
     "dark_archangel":     ("Dark Archangel", "Killed by Dark Archangel"),
     "black_tide":         ("Black Tide", "Killed by Black Tide"),
+    "enrage":             ("Enrage", "Killed by boss enrage mechanic"),
     "ambient":            ("Ambient Damage", "Killed by passive/environmental damage during a wipe"),
     "unknown":            ("Unknown", "Could not determine cause of death"),
 }
@@ -282,7 +284,10 @@ class MidnightFalls:
             label, desc = _get_wipe_label("overkill_current")
             return WipeInfo("overkill_current", label, desc, wipe_time), wipe_death_ids
 
-        called = self._detect_called_wipe(fight_deaths, wipe_cluster, wipe_death_ids, mechanic_counts, wipe_time)
+        called = self._detect_called_wipe(
+            fight_deaths, wipe_cluster, wipe_death_ids, mechanic_counts,
+            wipe_time, damage_events, fight_start, abilities,
+        )
         if called:
             return called
 
@@ -302,6 +307,7 @@ class MidnightFalls:
 
     def _classify_p1_wipe(self, wipe_cluster, wipe_death_ids, mechanic_counts, wipe_time, damage_events, fight_start, abilities, fight_deaths, tank_ids):
         has_lights_end = mechanic_counts.get("lights_end", 0) >= 3
+        any_lights_end = mechanic_counts.get("lights_end", 0) >= 1
         has_terminate = mechanic_counts.get("terminate", 0) >= 3
 
         result = self._resolve_dissonance_vs_soak(wipe_cluster, mechanic_counts, wipe_time, wipe_death_ids)
@@ -322,10 +328,23 @@ class MidnightFalls:
         if has_lights_end:
             return self._classify_lights_end_p1(wipe_cluster, damage_events, fight_start, wipe_time, abilities), wipe_death_ids
 
+        # Even 1 Light's End death with a clear sub-cause = crystal issue
+        if any_lights_end:
+            sub = self._classify_lights_end_p1(wipe_cluster, damage_events, fight_start, wipe_time, abilities)
+            if sub.cause_id != "lights_end":
+                return sub, wipe_death_ids
+
         if has_terminate:
             terminate_deaths = [d for d in wipe_cluster if d["category"] == "terminate"]
             times = [d["fight_relative_ms"] for d in terminate_deaths]
-            if max(times) - min(times) < 2000:
+            if max(times) - min(times) < 5000:
+                label, desc = _get_wipe_label("terminate")
+                return WipeInfo("terminate", label, f"{desc} ({len(terminate_deaths)} players killed)", wipe_time), wipe_death_ids
+
+        if mechanic_counts.get("terminate", 0) >= 2:
+            terminate_deaths = [d for d in wipe_cluster if d["category"] == "terminate"]
+            times = [d["fight_relative_ms"] for d in terminate_deaths]
+            if max(times) - min(times) < 5000:
                 label, desc = _get_wipe_label("terminate")
                 return WipeInfo("terminate", label, f"{desc} ({len(terminate_deaths)} players killed)", wipe_time), wipe_death_ids
 
@@ -494,8 +513,10 @@ class MidnightFalls:
             label, desc = _get_wipe_label("radiance")
             return WipeInfo("radiance", label, desc, wipe_time), wipe_death_ids
 
+        all_counts = self._count_mechanics(fight_deaths)
+        has_enrage_ability = all_counts.get("enrage", 0) >= 1
         last_death_ms = fight_deaths[-1]["fight_relative_ms"] if fight_deaths else 0
-        if last_death_ms >= ENRAGE_THRESHOLD_MS:
+        if has_enrage_ability or last_death_ms >= ENRAGE_THRESHOLD_MS:
             label, desc = _get_wipe_label("enrage")
             return WipeInfo("enrage", label, desc, wipe_time), wipe_death_ids
 
@@ -503,11 +524,46 @@ class MidnightFalls:
 
     # ── Called-wipe / attrition detection ───────────────────────────────
 
-    def _detect_called_wipe(self, fight_deaths, wipe_cluster, wipe_death_ids, mechanic_counts, wipe_time):
+    def _detect_called_wipe(self, fight_deaths, wipe_cluster, wipe_death_ids, mechanic_counts,
+                            wipe_time, damage_events, fight_start, abilities):
         early_deaths = [d for d in fight_deaths if d["death_order"] not in wipe_death_ids]
         if not early_deaths:
             return None
 
+        # Missed interrupt: if 2+ Terminate deaths happened in a tight cluster
+        # (same cast), classify as the kick — not attrition
+        all_terminate = [d for d in fight_deaths if d["category"] == "terminate"]
+        if len(all_terminate) >= 2:
+            times = [d["fight_relative_ms"] for d in all_terminate]
+            if max(times) - min(times) < 5000:
+                label, desc = _get_wipe_label("terminate")
+                return WipeInfo("terminate", label,
+                                f"{desc} ({len(all_terminate)} players killed)",
+                                wipe_time), wipe_death_ids
+
+        # If Light's End is in the wipe cluster AND there's a clear crystal sub-cause
+        # (glaive/beam/etc nearby), let the phase classifier handle it — not attrition
+        if mechanic_counts.get("lights_end", 0) >= 1:
+            le_deaths = [d for d in wipe_cluster if d["category"] == "lights_end"]
+            if le_deaths:
+                le_time = min(d["timestamp_ms"] for d in le_deaths)
+                window_start = le_time - 10_000
+                for e in damage_events:
+                    if window_start <= e["timestamp"] <= le_time:
+                        aname = abilities.get(e.get("abilityGameID"), {}).get("name", "")
+                        cat = _categorize(aname)
+                        if cat in ("glaive", "beam", "starsplinter", "criticality", "dark_constellation"):
+                            return None
+
+        # Memory game + early deaths = attrition drove the memory game failure
+        if mechanic_counts.get("dissonance", 0) >= 4 and len(early_deaths) >= 2:
+            label, desc = _get_wipe_label("attrition")
+            n = mechanic_counts["dissonance"]
+            return WipeInfo("attrition", label,
+                            f"Early deaths left raid unable to handle memory game — {n} killed by Dissonance ({len(fight_deaths)} total deaths)",
+                            wipe_time), wipe_death_ids
+
+        # Standard attrition: diverse early deaths + no dominant mechanic in wipe cluster
         non_ambient = {k: v for k, v in mechanic_counts.items() if k not in ("ambient", "unknown")}
         cluster_size = max(len(wipe_cluster), 1)
         top_count = max(non_ambient.values(), default=0)
@@ -523,12 +579,6 @@ class MidnightFalls:
         for d in early_deaths:
             if d["category"] not in ("ambient", "unknown"):
                 early_causes[d["category"]] = early_causes.get(d["category"], 0) + 1
-
-        all_terminate = sum(1 for d in fight_deaths if d["category"] == "terminate")
-        if all_terminate >= 1:
-            return WipeInfo("attrition", label,
-                            f"Missed interrupt and early deaths depleted battle rezzes ({len(fight_deaths)} total deaths)",
-                            wipe_time), wipe_death_ids
 
         if early_causes:
             top = max(early_causes, key=early_causes.get)
@@ -566,6 +616,8 @@ class MidnightFalls:
 
     def _check_tank_death(self, wipe_cluster, wipe_death_ids, wipe_time, tank_ids, phase_name):
         if not tank_ids:
+            return None
+        if any(d["category"] == "lights_end" for d in wipe_cluster):
             return None
         for d in wipe_cluster:
             if d["player_id"] in tank_ids:
