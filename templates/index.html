@@ -129,8 +129,14 @@
       const btn = document.getElementById('analyze-btn');
       btn.disabled = true;
       btn.textContent = 'Analyzing...';
-      showStatus('Fetching data from WarcraftLogs and Twitch — this may take 30-60 seconds...', 'loading');
       document.getElementById('results').innerHTML = '';
+
+      const startTime = performance.now();
+      showStatus('Fetching data from WarcraftLogs and Twitch — 0s elapsed...', 'loading');
+      const timerInterval = setInterval(() => {
+        const elapsed = Math.floor((performance.now() - startTime) / 1000);
+        showStatus(`Fetching data from WarcraftLogs and Twitch — ${elapsed}s elapsed...`, 'loading');
+      }, 1000);
 
       const streamDelay = parseInt(document.getElementById('stream-delay').value) || 0;
       let params = `log=${encodeURIComponent(logUrl)}`;
@@ -149,11 +155,13 @@
       try {
         const resp = await fetch(`/api/analyze?${params}`);
         const data = await resp.json();
+        clearInterval(timerInterval);
         if (data.error) { showStatus(data.error, 'error'); return; }
         currentData = data;
         hideStatus();
         renderResults(data);
       } catch (e) {
+        clearInterval(timerInterval);
         showStatus(`Request failed: ${e.message}`, 'error');
       } finally {
         btn.disabled = false;
@@ -175,9 +183,11 @@
       let pulls = [...data.pulls];
       pulls = sortPulls(pulls, currentSort);
 
+      const elapsed = data.elapsed_seconds ? ` (generated in ${data.elapsed_seconds}s)` : '';
+
       let html = `
         <div class="results-header">
-          <h2>${data.boss_name} — ${data.pull_count} pulls</h2>
+          <h2>${data.boss_name} — ${data.pull_count} pulls<span style="color:#7d8590;font-weight:400;font-size:0.85rem">${elapsed}</span></h2>
           <div class="sort-controls">
             <label>Sort by:</label>
             <select onchange="changeSort(this.value)">

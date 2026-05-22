@@ -218,6 +218,10 @@ class MidnightFalls:
             category = _categorize(ability_name)
             label, desc = _get_death_label(category)
 
+            if category == "ambient":
+                label = f"Ambient ({ability_name})"
+                desc = f"Killed by {ability_name} (passive/environmental damage)"
+
             fight_deaths.append({
                 "player_name": actors[tid]["name"],
                 "player_id": tid,
@@ -277,6 +281,10 @@ class MidnightFalls:
         if all_counts.get("overkill_current", 0) >= 1:
             label, desc = _get_wipe_label("overkill_current")
             return WipeInfo("overkill_current", label, desc, wipe_time), wipe_death_ids
+
+        called = self._detect_called_wipe(fight_deaths, wipe_cluster, wipe_death_ids, mechanic_counts, wipe_time)
+        if called:
+            return called
 
         phase = _get_phase_at_time(wipe_time)
 
@@ -492,6 +500,46 @@ class MidnightFalls:
             return WipeInfo("enrage", label, desc, wipe_time), wipe_death_ids
 
         return self._fallback_wipe(mechanic_counts, wipe_time, wipe_death_ids, "Phase 4", fight_deaths)
+
+    # ── Called-wipe / attrition detection ───────────────────────────────
+
+    def _detect_called_wipe(self, fight_deaths, wipe_cluster, wipe_death_ids, mechanic_counts, wipe_time):
+        early_deaths = [d for d in fight_deaths if d["death_order"] not in wipe_death_ids]
+        if not early_deaths:
+            return None
+
+        non_ambient = {k: v for k, v in mechanic_counts.items() if k not in ("ambient", "unknown")}
+        cluster_size = max(len(wipe_cluster), 1)
+        top_count = max(non_ambient.values(), default=0)
+        dominant_fraction = top_count / cluster_size
+
+        threshold = 0.6 if len(early_deaths) >= 2 else 0.4
+        if dominant_fraction > threshold:
+            return None
+
+        label, desc = _get_wipe_label("attrition")
+
+        early_causes = {}
+        for d in early_deaths:
+            if d["category"] not in ("ambient", "unknown"):
+                early_causes[d["category"]] = early_causes.get(d["category"], 0) + 1
+
+        all_terminate = sum(1 for d in fight_deaths if d["category"] == "terminate")
+        if all_terminate >= 1:
+            return WipeInfo("attrition", label,
+                            f"Missed interrupt and early deaths depleted battle rezzes ({len(fight_deaths)} total deaths)",
+                            wipe_time), wipe_death_ids
+
+        if early_causes:
+            top = max(early_causes, key=early_causes.get)
+            top_label = DEATH_LABELS.get(top, DEATH_LABELS["unknown"])[0]
+            return WipeInfo("attrition", label,
+                            f"Early deaths ({top_label}) depleted battle rezzes — raid could not recover ({len(fight_deaths)} total deaths)",
+                            wipe_time), wipe_death_ids
+
+        return WipeInfo("attrition", label,
+                        f"{desc} ({len(fight_deaths)} total deaths across the fight)",
+                        wipe_time), wipe_death_ids
 
     # ── Shared helpers ───────────────────────────────────────────────────────
 
