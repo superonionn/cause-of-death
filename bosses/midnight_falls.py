@@ -39,7 +39,7 @@ MECHANIC_PATTERNS: dict[str, list[str]] = {
     "resonance":          ["resonance"],
     "darkwell":           ["the darkwell"],
     "starsplinter":       ["starsplinter"],
-    "charged_core":       ["charged core"],
+    "charged_core":       ["charged core", "core harvest"],
     "iris_of_oblivion":   ["iris of oblivion"],
     "overkill_current":   ["overkill current"],
     "criticality":        ["criticality"],
@@ -48,12 +48,13 @@ MECHANIC_PATTERNS: dict[str, list[str]] = {
     "stellar_implosion":  ["stellar implosion"],
     "dark_archangel":     ["dark archangel"],
     "black_tide":         ["black tide"],
-    "enrage":             ["heaven and hell", "midnight perpetual"],
+    "enrage":             ["heaven and hell", "heaven & hell", "midnight perpetual"],
 }
 
 AMBIENT_PATTERNS = [
     "shattered sky", "glimmering", "melee", "fel armor",
-    "dark rune", "dimming", "impaled",
+    "dark rune", "dimming", "impaled", "thunderous well",
+    "tears of l'ura", "void swarm", "light siphon", "severed surge",
 ]
 
 # ── Human-readable labels ───────────────────────────────────────────────────
@@ -458,24 +459,27 @@ class MidnightFalls:
     # ── Phase 3 ──────────────────────────────────────────────────────────────
 
     def _classify_p3_wipe(self, wipe_cluster, wipe_death_ids, mechanic_counts, wipe_time, damage_events, fight_start, abilities, fight_deaths, tank_ids):
-        # Constellation kills crystal holder → cascade of light's end deaths.
-        # The constellation death may be inside the wipe cluster OR just before it
-        # (LE dot ticks over 15-20s, pushing the constellation death outside the window).
-        any_le = mechanic_counts.get("lights_end", 0) >= 1
-        if any_le:
-            le_deaths = [d for d in wipe_cluster if d["category"] == "lights_end"]
-            first_le_ms = min(d["fight_relative_ms"] for d in le_deaths) if le_deaths else wipe_time
-            constellation_trigger = next(
-                (d for d in fight_deaths
-                 if d["category"] == "dark_constellation"
-                 and d["player_id"] not in tank_ids
-                 and d["fight_relative_ms"] <= first_le_ms + 2000),
-                None,
-            )
-            if constellation_trigger:
+        # Constellation kills crystal holder → cascade (LE, midnight, naaru's lament, etc).
+        # The trigger death may be inside or outside the wipe cluster.
+        # Only match if the cascade is from crystal-failure mechanics (not dissonance/terminate).
+        cascade_cats = {"lights_end", "midnight", "naarus_lament", "ambient", "unknown", "resonance", "radiance"}
+        constellation_triggers = [
+            d for d in fight_deaths
+            if d["category"] == "dark_constellation"
+            and d["player_id"] not in tank_ids
+        ]
+        for ct in constellation_triggers:
+            all_after = [
+                d for d in fight_deaths
+                if d["fight_relative_ms"] > ct["fight_relative_ms"]
+                and d["fight_relative_ms"] <= ct["fight_relative_ms"] + 10_000
+                and d["category"] != "dark_constellation"
+            ]
+            deaths_after = [d for d in all_after if d["category"] in cascade_cats]
+            if len(deaths_after) >= 3 and len(deaths_after) >= len(all_after) * 0.5:
                 label, desc = _get_wipe_label("lights_end_constellation")
                 return WipeInfo("lights_end_constellation", label,
-                                f"{desc} ({constellation_trigger['player_name']} killed by constellation)",
+                                f"Constellation hit crystal carrier ({ct['player_name']}), causing a cascade wipe",
                                 wipe_time), wipe_death_ids
 
         if mechanic_counts.get("lights_end", 0) >= 3:
@@ -507,6 +511,13 @@ class MidnightFalls:
     # ── Phase 4 ──────────────────────────────────────────────────────────────
 
     def _classify_p4_wipe(self, wipe_cluster, wipe_death_ids, mechanic_counts, wipe_time, fight_deaths):
+        all_counts = self._count_mechanics(fight_deaths)
+        has_enrage_ability = all_counts.get("enrage", 0) >= 1
+        last_death_ms = fight_deaths[-1]["fight_relative_ms"] if fight_deaths else 0
+        if has_enrage_ability or last_death_ms >= ENRAGE_THRESHOLD_MS:
+            label, desc = _get_wipe_label("enrage")
+            return WipeInfo("enrage", label, desc, wipe_time), wipe_death_ids
+
         if mechanic_counts.get("starsplinter", 0) >= 4:
             label, desc = _get_wipe_label("starsplinter_stack")
             return WipeInfo("starsplinter_stack", label, desc, wipe_time), wipe_death_ids
@@ -518,13 +529,6 @@ class MidnightFalls:
         if mechanic_counts.get("radiance", 0) >= 3:
             label, desc = _get_wipe_label("radiance")
             return WipeInfo("radiance", label, desc, wipe_time), wipe_death_ids
-
-        all_counts = self._count_mechanics(fight_deaths)
-        has_enrage_ability = all_counts.get("enrage", 0) >= 1
-        last_death_ms = fight_deaths[-1]["fight_relative_ms"] if fight_deaths else 0
-        if has_enrage_ability or last_death_ms >= ENRAGE_THRESHOLD_MS:
-            label, desc = _get_wipe_label("enrage")
-            return WipeInfo("enrage", label, desc, wipe_time), wipe_death_ids
 
         return self._fallback_wipe(mechanic_counts, wipe_time, wipe_death_ids, "Phase 4", fight_deaths)
 
@@ -571,16 +575,14 @@ class MidnightFalls:
                         if cat in trigger_cats:
                             return None
 
-        # Memory game + early deaths = attrition drove the memory game failure
-        if mechanic_counts.get("dissonance", 0) >= 4 and len(early_deaths) >= 2:
-            label, desc = _get_wipe_label("attrition")
-            n = mechanic_counts["dissonance"]
-            return WipeInfo("attrition", label,
-                            f"Early deaths left raid unable to handle memory game — {n} killed by Dissonance ({len(fight_deaths)} total deaths)",
-                            wipe_time), wipe_death_ids
+        # P4 enrage fights should be classified by the phase classifier, not as attrition
+        phase = _get_phase_at_time(wipe_time)
+        if phase == "p4":
+            last_death_ms = fight_deaths[-1]["fight_relative_ms"] if fight_deaths else 0
+            if last_death_ms >= ENRAGE_THRESHOLD_MS:
+                return None
 
         # Standard attrition: multiple diverse early deaths + no dominant mechanic in wipe cluster
-        # 1 early death is normal raiding — only flag attrition with 2+ early deaths
         if len(early_deaths) < 2:
             return None
 
@@ -589,7 +591,7 @@ class MidnightFalls:
         top_count = max(non_ambient.values(), default=0)
         dominant_fraction = top_count / cluster_size
 
-        if dominant_fraction >= 0.5:
+        if dominant_fraction >= 0.3:
             return None
 
         label, desc = _get_wipe_label("attrition")
@@ -649,11 +651,11 @@ class MidnightFalls:
         return None
 
     def _fallback_wipe(self, mechanic_counts, wipe_time, wipe_death_ids, phase_name, fight_deaths=None):
-        if mechanic_counts:
-            top = max(mechanic_counts, key=mechanic_counts.get)
-            if top not in ("ambient", "unknown"):
-                label, desc = DEATH_LABELS.get(top, DEATH_LABELS["unknown"])
-                return WipeInfo(top, f"{phase_name}: {label}", desc, wipe_time), wipe_death_ids
+        non_generic = {k: v for k, v in mechanic_counts.items() if k not in ("ambient", "unknown")}
+        if non_generic:
+            top = max(non_generic, key=non_generic.get)
+            label, desc = DEATH_LABELS.get(top, DEATH_LABELS["unknown"])
+            return WipeInfo(top, f"{phase_name}: {label}", desc, wipe_time), wipe_death_ids
         if fight_deaths and len(fight_deaths) >= 4:
             non_wipe = [d for d in fight_deaths if d["death_order"] not in wipe_death_ids]
             if len(non_wipe) >= 2:
