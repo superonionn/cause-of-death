@@ -121,6 +121,8 @@ WIPE_LABELS: dict[str, tuple[str, str]] = {
                                  "Starsplinter hit the group — multiple players killed"),
     "enrage":                   ("Enrage",
                                  "Boss enraged — too many deaths over Phase 4, fight lasted past 9 minutes"),
+    "called_wipe":              ("Called Wipe",
+                                 "Raid leader called a wipe — players ran to center"),
     "attrition":                ("Too Many Deaths",
                                  "Too many individual deaths drained battle rezzes — raid could not recover"),
     "unknown":                  ("Unknown Wipe",
@@ -311,6 +313,14 @@ class MidnightFalls:
         any_lights_end = mechanic_counts.get("lights_end", 0) >= 1
         has_terminate = mechanic_counts.get("terminate", 0) >= 3
 
+        # Terminate first — a missed kick one-shotting half the raid is always the cause
+        if has_terminate:
+            terminate_deaths = [d for d in wipe_cluster if d["category"] == "terminate"]
+            times = [d["fight_relative_ms"] for d in terminate_deaths]
+            if max(times) - min(times) < 5000:
+                label, desc = _get_wipe_label("terminate")
+                return WipeInfo("terminate", label, f"{desc} ({len(terminate_deaths)} players killed)", wipe_time), wipe_death_ids
+
         result = self._resolve_dissonance_vs_soak(wipe_cluster, mechanic_counts, wipe_time, wipe_death_ids)
         if result:
             return result
@@ -334,13 +344,6 @@ class MidnightFalls:
             sub = self._classify_lights_end_p1(wipe_cluster, damage_events, fight_start, wipe_time, abilities)
             if sub.cause_id != "lights_end":
                 return sub, wipe_death_ids
-
-        if has_terminate:
-            terminate_deaths = [d for d in wipe_cluster if d["category"] == "terminate"]
-            times = [d["fight_relative_ms"] for d in terminate_deaths]
-            if max(times) - min(times) < 5000:
-                label, desc = _get_wipe_label("terminate")
-                return WipeInfo("terminate", label, f"{desc} ({len(terminate_deaths)} players killed)", wipe_time), wipe_death_ids
 
         if mechanic_counts.get("terminate", 0) >= 2:
             terminate_deaths = [d for d in wipe_cluster if d["category"] == "terminate"]
@@ -536,6 +539,31 @@ class MidnightFalls:
 
     def _detect_called_wipe(self, fight_deaths, wipe_cluster, wipe_death_ids, mechanic_counts,
                             wipe_time, damage_events, fight_start, abilities):
+        # Called wipe: 3+ darkwell deaths = players running into center to die.
+        # Only if darkwell is the top non-ambient mechanic (otherwise a real mechanic killed the raid).
+        darkwell_count = mechanic_counts.get("darkwell", 0)
+        if darkwell_count >= 3:
+            non_dw = {k: v for k, v in mechanic_counts.items()
+                      if k not in ("darkwell", "ambient", "unknown")}
+            top_non_dw = max(non_dw.values(), default=0)
+            if darkwell_count > top_non_dw:
+                first_dw_ms = min(d["fight_relative_ms"] for d in fight_deaths if d["category"] == "darkwell")
+                pre_dw = [d for d in fight_deaths
+                          if d["fight_relative_ms"] < first_dw_ms
+                          and d["category"] not in ("darkwell", "ambient", "unknown")]
+                cause_str = ""
+                if pre_dw:
+                    causes = {}
+                    for d in pre_dw:
+                        causes[d["category"]] = causes.get(d["category"], 0) + 1
+                    top = max(causes, key=causes.get)
+                    top_label = DEATH_LABELS.get(top, DEATH_LABELS["unknown"])[0]
+                    cause_str = f" after {len(pre_dw)} death(s) to {top_label}"
+                label, _ = _get_wipe_label("called_wipe")
+                return WipeInfo("called_wipe", label,
+                                f"Raid leader called a wipe{cause_str} — {darkwell_count} players ran to center",
+                                wipe_time), wipe_death_ids
+
         early_deaths = [d for d in fight_deaths if d["death_order"] not in wipe_death_ids]
         if not early_deaths:
             return None
@@ -641,7 +669,7 @@ class MidnightFalls:
         if any(d["category"] == "lights_end" for d in wipe_cluster):
             return None
         for d in wipe_cluster:
-            if d["player_id"] in tank_ids:
+            if d["player_id"] in tank_ids and d["category"] != "darkwell":
                 cascade = [x for x in wipe_cluster if x["fight_relative_ms"] > d["fight_relative_ms"]]
                 if len(cascade) >= 2:
                     label, desc = _get_wipe_label("tank_death")
