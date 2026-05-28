@@ -284,6 +284,13 @@ class MidnightFalls:
         mechanic_counts = self._count_mechanics(wipe_cluster)
         wipe_time = wipe_cluster[0]["fight_relative_ms"] if wipe_cluster else fight_deaths[-1]["fight_relative_ms"]
 
+        # Very short pull with only ambient/no deaths = accidental pull / early reset
+        if wipe_time < 60_000:
+            non_ambient = [d for d in fight_deaths if d["category"] not in ("ambient", "unknown")]
+            if not non_ambient:
+                label, desc = _get_wipe_label("called_wipe")
+                return WipeInfo("called_wipe", label, "Accidental pull or early reset", wipe_time), wipe_death_ids
+
         # Universal: galvanize failure always takes priority
         all_counts = self._count_mechanics(fight_deaths)
         if all_counts.get("overkill_current", 0) >= 1:
