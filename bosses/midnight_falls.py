@@ -215,7 +215,8 @@ class MidnightFalls:
                 continue
 
             rel_ms = e["timestamp"] - fight_start
-            ability_name = abilities.get(e.get("killingAbilityGameID"), {}).get("name", "Unknown")
+            ability_game_id = e.get("killingAbilityGameID", 0)
+            ability_name = abilities.get(ability_game_id, {}).get("name", "Unknown")
 
             if _is_ignorable_death(rel_ms):
                 continue
@@ -236,6 +237,7 @@ class MidnightFalls:
                 "cause_label": label,
                 "cause_description": desc,
                 "killing_ability": ability_name,
+                "killing_ability_id": ability_game_id,
             })
 
         fight_deaths.sort(key=lambda d: d["timestamp_ms"])
@@ -260,6 +262,7 @@ class MidnightFalls:
                 cause_label=d["cause_label"],
                 cause_description=d["cause_description"],
                 killing_ability=d["killing_ability"],
+                killing_ability_id=d["killing_ability_id"],
                 death_order=d["death_order"],
                 is_wipe_death=d["death_order"] in wipe_death_ids,
             ))
@@ -712,8 +715,11 @@ class MidnightFalls:
         non_generic = {k: v for k, v in mechanic_counts.items() if k not in ("ambient", "unknown")}
         if non_generic:
             top = max(non_generic, key=non_generic.get)
-            label, desc = DEATH_LABELS.get(top, DEATH_LABELS["unknown"])
-            return WipeInfo(top, f"{phase_name}: {label}", desc, wipe_time), wipe_death_ids
+            if top in WIPE_LABELS:
+                label, desc = _get_wipe_label(top)
+            else:
+                label, desc = DEATH_LABELS.get(top, DEATH_LABELS["unknown"])
+            return WipeInfo(top, label, desc, wipe_time), wipe_death_ids
         if fight_deaths and len(fight_deaths) >= 4:
             non_wipe = [d for d in fight_deaths if d["death_order"] not in wipe_death_ids]
             if len(non_wipe) >= 2:
@@ -722,7 +728,7 @@ class MidnightFalls:
                                 f"{desc} ({len(fight_deaths)} total deaths across the fight)",
                                 wipe_time), wipe_death_ids
         label, desc = _get_wipe_label("unknown")
-        return WipeInfo("unknown", f"{phase_name}: {label}", desc, wipe_time), wipe_death_ids
+        return WipeInfo("unknown", label, desc, wipe_time), wipe_death_ids
 
     def _get_wipe_cluster(self, fight_deaths: list[dict], window_ms: int = 15_000) -> list[dict]:
         if not fight_deaths:

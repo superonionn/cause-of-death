@@ -77,6 +77,7 @@ def classify_fights(
                 "cause_label": d.cause_label,
                 "cause_description": d.cause_description,
                 "killing_ability": d.killing_ability,
+                "killing_ability_id": d.killing_ability_id,
                 "death_order": d.death_order,
                 "is_wipe_death": d.is_wipe_death,
                 "vod_url": vod_url_str,

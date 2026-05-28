@@ -13,6 +13,7 @@ class DeathInfo:
     cause_label: str
     cause_description: str
     killing_ability: str
+    killing_ability_id: int
     death_order: int
     is_wipe_death: bool
 

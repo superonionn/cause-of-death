@@ -127,7 +127,8 @@
     .stats-section { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
     .stats-section h3 { font-size: 0.95rem; color: #7d8590; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
 
-    .stat-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .stat-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer; border-radius: 4px; padding: 2px 0; }
+    .stat-bar-row:hover { background: #1c2128; }
     .stat-bar-label { font-size: 0.85rem; min-width: 180px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .stat-bar-track { flex: 1; height: 20px; background: #21262d; border-radius: 4px; overflow: hidden; }
     .stat-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
@@ -138,6 +139,17 @@
     .stats-table th:hover { color: #e6edf3; }
     .stats-table td { padding: 8px; border-bottom: 1px solid #21262d; }
     .stats-table tr:last-child td { border-bottom: none; }
+
+    /* Filter banner */
+    .filter-banner { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #1c1228; border: 1px solid #a371f733; border-radius: 6px; margin-bottom: 12px; font-size: 0.85rem; }
+    .filter-banner .filter-label { color: #d2a8ff; }
+    .filter-banner .filter-value { color: #e6edf3; font-weight: 600; }
+    .filter-banner .filter-clear { color: #7d8590; cursor: pointer; margin-left: auto; text-decoration: underline; }
+    .filter-banner .filter-clear:hover { color: #e6edf3; }
+
+    /* Wowhead tooltip overrides */
+    .wowhead-link { color: #f0883e; text-decoration: none; }
+    .wowhead-link:hover { text-decoration: underline; }
 
     @media (max-width: 640px) {
       .pull-header { padding: 10px 12px; gap: 8px; }
@@ -211,6 +223,7 @@
     let activeTab = 'latest';
     let currentSort = 'pull_number';
     let autoRefreshHandle = null;
+    let currentFilter = null;
 
     // ── Session management ──────────────────────────────────────────────
 
@@ -258,8 +271,8 @@
         bossName = data.boss_name;
 
         hideStatus();
-        showSessionUI(data.elapsed_seconds);
-        renderActiveTab();
+        showSessionUI();
+        switchTab('latest');
       } catch (e) {
         clearInterval(timerInterval);
         showStatus(`Request failed: ${e.message}`, 'error');
@@ -325,7 +338,7 @@
       document.getElementById('status').className = 'status';
     }
 
-    function showSessionUI(elapsed) {
+    function showSessionUI() {
       document.getElementById('refresh-btn').style.display = '';
       document.getElementById('refresh-controls').classList.add('visible');
       document.getElementById('tab-bar').classList.add('visible');
@@ -366,6 +379,16 @@
       if (activeTab === 'latest') renderLatestPull();
       else if (activeTab === 'all') renderAllPulls();
       else if (activeTab === 'stats') renderStatistics();
+    }
+
+    function filterByWipeCause(label) {
+      currentFilter = label;
+      switchTab('all');
+    }
+
+    function clearFilter() {
+      currentFilter = null;
+      renderAllPulls();
     }
 
     // ── Latest Pull tab ─────────────────────────────────────────────────
@@ -411,13 +434,13 @@
           <div class="detail-section">
             <h3>Death Timeline (${allDeaths.length} deaths)</h3>
             <table class="death-table">
-              <tr><th>#</th><th>Player</th><th>Time</th><th>Cause</th><th>VOD</th></tr>
+              <tr><th>#</th><th>Player</th><th>Time</th><th>Killed By</th><th>VOD</th></tr>
               ${allDeaths.map(d => `
                 <tr style="${d.is_wipe_death ? 'background:#1c121488' : ''}">
                   <td class="timestamp">${d.death_order}</td>
                   <td class="player">${esc(d.player)}</td>
                   <td class="timestamp">${d.timestamp_display}</td>
-                  <td class="cause" title="${esc(d.cause_description)}">${esc(d.cause_label)}</td>
+                  <td class="cause" title="${esc(d.cause_description)}">${abilityLink(d.killing_ability, d.killing_ability_id)}</td>
                   <td>${d.vod_url ? `<a href="${d.vod_url}" target="_blank">&#9654; ${d.vod_time}</a>` : '&mdash;'}</td>
                 </tr>
               `).join('')}
@@ -440,17 +463,31 @@
             ${deathRows}
           </div>
         </div>`;
+      refreshTooltips();
     }
 
     // ── All Pulls tab ───────────────────────────────────────────────────
 
     function renderAllPulls() {
       const container = document.getElementById('tab-all');
-      let pulls = sortPulls([...allPulls], currentSort);
+      let pulls = [...allPulls];
 
-      let html = `
+      let filterBanner = '';
+      if (currentFilter) {
+        pulls = pulls.filter(p => p.wipe && p.wipe.cause_label === currentFilter);
+        filterBanner = `
+          <div class="filter-banner">
+            <span class="filter-label">Filtered by:</span>
+            <span class="filter-value">${esc(currentFilter)}</span>
+            <span class="filter-clear" onclick="clearFilter()">Clear filter</span>
+          </div>`;
+      }
+
+      pulls = sortPulls(pulls, currentSort);
+
+      let html = filterBanner + `
         <div class="results-header">
-          <h2>${esc(bossName)} &mdash; ${allPulls.length} pulls</h2>
+          <h2>${esc(bossName)} &mdash; ${pulls.length}${currentFilter ? ' matching' : ''} pulls</h2>
           <div class="sort-controls">
             <label>Sort by:</label>
             <select onchange="changeSort(this.value)">
@@ -492,6 +529,7 @@
 
       html += '</div>';
       container.innerHTML = html;
+      refreshTooltips();
     }
 
     function renderPullDetail(pull) {
@@ -526,7 +564,7 @@
                   <td class="timestamp">${d.death_order}</td>
                   <td class="player">${esc(d.player)}</td>
                   <td class="timestamp">${d.timestamp_display}</td>
-                  <td class="cause" title="${esc(d.cause_description)}">${esc(d.cause_label)}</td>
+                  <td class="cause" title="${esc(d.cause_description)}">${abilityLink(d.killing_ability, d.killing_ability_id)}</td>
                   <td>${d.vod_url ? `<a href="${d.vod_url}" target="_blank">&#9654; ${d.vod_time}</a>` : '&mdash;'}</td>
                 </tr>
               `).join('')}
@@ -546,7 +584,7 @@
                   <td class="timestamp">${d.death_order}</td>
                   <td class="player">${esc(d.player)}</td>
                   <td class="timestamp">${d.timestamp_display}</td>
-                  <td class="cause" title="${esc(d.killing_ability)}">${esc(d.cause_label)}</td>
+                  <td class="cause" title="${esc(d.killing_ability)}">${abilityLink(d.killing_ability, d.killing_ability_id)}</td>
                   <td>${d.vod_url ? `<a href="${d.vod_url}" target="_blank">&#9654; ${d.vod_time}</a>` : '&mdash;'}</td>
                 </tr>
               `).join('')}
@@ -627,11 +665,11 @@
       const phaseSorted = Object.entries(phaseCounts).sort((a, b) => b[1] - a[1]);
       const maxPhase = phaseSorted.length ? phaseSorted[0][1] : 1;
 
-      // Per-player death counts
+      // Per-player early death counts (excludes wipe deaths)
       const playerDeaths = {};
       const playerCauses = {};
       for (const p of allPulls) {
-        for (const d of [...(p.early_deaths || []), ...(p.wipe_deaths || [])]) {
+        for (const d of (p.early_deaths || [])) {
           playerDeaths[d.player] = (playerDeaths[d.player] || 0) + 1;
           if (!playerCauses[d.player]) playerCauses[d.player] = {};
           playerCauses[d.player][d.cause_label] = (playerCauses[d.player][d.cause_label] || 0) + 1;
@@ -639,11 +677,13 @@
       }
       const playerSorted = Object.entries(playerDeaths).sort((a, b) => b[1] - a[1]);
 
-      // Top killing abilities
+      // Top killing abilities (with spell IDs for tooltips)
       const abilityCounts = {};
+      const abilityIds = {};
       for (const p of allPulls) {
         for (const d of [...(p.early_deaths || []), ...(p.wipe_deaths || [])]) {
           abilityCounts[d.killing_ability] = (abilityCounts[d.killing_ability] || 0) + 1;
+          if (d.killing_ability_id) abilityIds[d.killing_ability] = d.killing_ability_id;
         }
       }
       const abilitySorted = Object.entries(abilityCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
@@ -678,7 +718,7 @@
         <div class="stats-section">
           <h3>Wipe Cause Breakdown</h3>
           ${wipeSorted.map(([label, count], i) => `
-            <div class="stat-bar-row">
+            <div class="stat-bar-row" onclick="filterByWipeCause('${esc(label).replace(/'/g, "\\'")}')">
               <span class="stat-bar-label">${esc(label)}</span>
               <div class="stat-bar-track">
                 <div class="stat-bar-fill" style="width:${(count/maxWipe*100).toFixed(1)}%;background:${barColors[i % barColors.length]}"></div>
@@ -705,7 +745,7 @@
           <h3>Top Killing Abilities</h3>
           ${abilitySorted.map(([label, count], i) => `
             <div class="stat-bar-row">
-              <span class="stat-bar-label">${esc(label)}</span>
+              <span class="stat-bar-label">${abilityLink(label, abilityIds[label])}</span>
               <div class="stat-bar-track">
                 <div class="stat-bar-fill" style="width:${(count/maxAbility*100).toFixed(1)}%;background:${barColors[i % barColors.length]}"></div>
               </div>
@@ -715,7 +755,7 @@
         </div>
 
         <div class="stats-section">
-          <h3>Deaths by Player</h3>
+          <h3>Early Deaths by Player</h3>
           <table class="stats-table">
             <tr><th>Player</th><th>Deaths</th><th>Most Common Cause</th></tr>
             ${playerSorted.map(([name, count]) => {
@@ -730,9 +770,21 @@
           </table>
         </div>
       `;
+      refreshTooltips();
     }
 
     // ── Utility ─────────────────────────────────────────────────────────
+
+    function abilityLink(name, spellId) {
+      if (!spellId) return esc(name);
+      return `<a href="https://www.wowhead.com/spell=${spellId}" class="wowhead-link" data-wowhead="spell=${spellId}">${esc(name)}</a>`;
+    }
+
+    function refreshTooltips() {
+      if (typeof $WowheadPower !== 'undefined') {
+        $WowheadPower.refreshLinks();
+      }
+    }
 
     function esc(s) {
       if (!s) return '';
@@ -756,5 +808,7 @@
       }
     });
   </script>
+  <script>const whTooltips = {colorLinks: false, iconizeLinks: true, renameLinks: false};</script>
+  <script src="https://wow.zamimg.com/js/tooltips.js"></script>
 </body>
 </html>
