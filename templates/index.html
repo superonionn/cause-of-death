@@ -23,11 +23,29 @@
     .btn { padding: 8px 20px; background: #238636; border: 1px solid #2ea043; border-radius: 6px; color: #fff; font-size: 0.9rem; cursor: pointer; font-weight: 500; }
     .btn:hover { background: #2ea043; }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary { background: #21262d; border-color: #30363d; }
+    .btn-secondary:hover { background: #30363d; }
+    .btn-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+    /* Auto-refresh controls */
+    .refresh-controls { display: none; align-items: center; gap: 12px; margin-left: auto; font-size: 0.85rem; }
+    .refresh-controls.visible { display: flex; }
+    .refresh-controls label { color: #7d8590; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+    .refresh-controls select { padding: 4px 8px; background: #161b22; border: 1px solid #30363d; border-radius: 4px; color: #e6edf3; font-size: 0.8rem; }
+    .refresh-indicator { color: #3fb950; font-size: 0.8rem; opacity: 0; transition: opacity 0.3s; }
+    .refresh-indicator.show { opacity: 1; }
 
     /* Status */
     .status { padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; display: none; }
     .status.loading { display: block; background: #161b22; border: 1px solid #30363d; color: #7d8590; }
     .status.error { display: block; background: #1c1214; border: 1px solid #f85149; color: #f85149; }
+
+    /* Tab bar */
+    .tab-bar { display: none; border-bottom: 1px solid #30363d; margin-bottom: 16px; }
+    .tab-bar.visible { display: flex; }
+    .tab-btn { padding: 10px 20px; background: none; border: none; border-bottom: 2px solid transparent; color: #7d8590; font-size: 0.9rem; cursor: pointer; font-weight: 500; }
+    .tab-btn:hover { color: #e6edf3; }
+    .tab-btn.active { color: #58a6ff; border-bottom-color: #58a6ff; }
 
     /* Results header */
     .results-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
@@ -62,6 +80,7 @@
     .wipe-box { background: #1c1214; border: 1px solid #f8514933; border-radius: 6px; padding: 12px; }
     .wipe-box .wipe-title { font-weight: 600; color: #f85149; margin-bottom: 4px; }
     .wipe-box .wipe-desc { font-size: 0.85rem; color: #b1bac4; margin-bottom: 6px; }
+    .wipe-box .wipe-context { font-size: 0.82rem; color: #d2a8ff; background: #1c1228; border-radius: 4px; padding: 6px 10px; margin-bottom: 6px; }
     .wipe-box .wipe-meta { font-size: 0.8rem; color: #7d8590; display: flex; gap: 16px; }
     .wipe-box .wipe-meta a { color: #a371f7; text-decoration: none; }
     .wipe-box .wipe-meta a:hover { text-decoration: underline; }
@@ -81,17 +100,59 @@
 
     .no-deaths { color: #7d8590; font-size: 0.85rem; font-style: italic; }
 
+    /* ── Latest Pull tab ─────────────────────────────────────────────── */
+    .latest-card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; overflow: hidden; }
+    .latest-header { padding: 20px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid #30363d; }
+    .latest-pull-num { font-size: 1.8rem; font-weight: 700; color: #58a6ff; }
+    .latest-meta { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    .latest-meta .pull-duration { font-size: 1rem; }
+    .latest-meta .pull-phase { font-size: 0.9rem; padding: 4px 12px; }
+    .latest-body { padding: 20px 24px; }
+    .latest-wipe-box { background: #1c1214; border: 1px solid #f8514933; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; }
+    .latest-wipe-box .wipe-title { font-size: 1.2rem; font-weight: 700; color: #f85149; margin-bottom: 6px; }
+    .latest-wipe-box .wipe-desc { font-size: 0.95rem; color: #b1bac4; margin-bottom: 8px; }
+    .latest-wipe-box .wipe-context { font-size: 0.88rem; color: #d2a8ff; background: #1c1228; border-radius: 4px; padding: 8px 12px; margin-bottom: 8px; }
+    .latest-wipe-box .wipe-meta { font-size: 0.85rem; color: #7d8590; display: flex; gap: 16px; }
+    .latest-wipe-box .wipe-meta a { color: #a371f7; text-decoration: none; }
+    .latest-kill-box { background: #122117; border: 1px solid #23863633; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; }
+    .latest-kill-box .kill-title { font-size: 1.2rem; font-weight: 700; color: #3fb950; }
+    .latest-no-pull { text-align: center; color: #7d8590; padding: 40px 20px; font-size: 1rem; }
+
+    /* ── Statistics tab ───────────────────────────────────────────────── */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .stat-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: center; }
+    .stat-card .stat-value { font-size: 1.6rem; font-weight: 700; color: #58a6ff; }
+    .stat-card .stat-label { font-size: 0.8rem; color: #7d8590; margin-top: 4px; }
+
+    .stats-section { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+    .stats-section h3 { font-size: 0.95rem; color: #7d8590; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+
+    .stat-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .stat-bar-label { font-size: 0.85rem; min-width: 180px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .stat-bar-track { flex: 1; height: 20px; background: #21262d; border-radius: 4px; overflow: hidden; }
+    .stat-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+    .stat-bar-count { font-size: 0.85rem; color: #7d8590; min-width: 32px; }
+
+    .stats-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .stats-table th { text-align: left; padding: 8px; color: #7d8590; border-bottom: 1px solid #30363d; font-weight: 500; cursor: pointer; }
+    .stats-table th:hover { color: #e6edf3; }
+    .stats-table td { padding: 8px; border-bottom: 1px solid #21262d; }
+    .stats-table tr:last-child td { border-bottom: none; }
+
     @media (max-width: 640px) {
       .pull-header { padding: 10px 12px; gap: 8px; }
       .input-row { flex-direction: column; }
       .input-row .field { min-width: unset; }
+      .btn-row { flex-direction: column; align-items: stretch; }
+      .refresh-controls { margin-left: 0; }
+      .stat-bar-label { min-width: 120px; font-size: 0.8rem; }
     }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Cause of Death</h1>
-    <p class="subtitle">WoW raid wipe analysis — WarcraftLogs + VOD timestamps</p>
+    <p class="subtitle">WoW raid wipe analysis &mdash; WarcraftLogs + VOD timestamps</p>
 
     <div class="input-section">
       <div class="input-row">
@@ -110,18 +171,50 @@
           <input type="number" id="stream-delay" value="0" min="0" max="300" placeholder="0">
         </div>
       </div>
-      <button class="btn" id="analyze-btn" onclick="runAnalysis()">Analyze</button>
+      <div class="btn-row">
+        <button class="btn" id="analyze-btn" onclick="startSession()">Analyze</button>
+        <button class="btn btn-secondary" id="refresh-btn" onclick="refreshSession()" style="display:none">Refresh</button>
+        <div class="refresh-controls" id="refresh-controls">
+          <label>
+            <input type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()">
+            Auto-refresh every
+          </label>
+          <select id="refresh-interval" onchange="toggleAutoRefresh()">
+            <option value="15">15s</option>
+            <option value="30" selected>30s</option>
+            <option value="60">60s</option>
+          </select>
+          <span class="refresh-indicator" id="refresh-indicator">New pull detected!</span>
+        </div>
+      </div>
     </div>
 
     <div class="status" id="status"></div>
-    <div id="results"></div>
+
+    <div class="tab-bar" id="tab-bar">
+      <button class="tab-btn active" data-tab="latest" onclick="switchTab('latest')">Latest Pull</button>
+      <button class="tab-btn" data-tab="all" onclick="switchTab('all')">All Pulls</button>
+      <button class="tab-btn" data-tab="stats" onclick="switchTab('stats')">Statistics</button>
+    </div>
+
+    <div id="tab-latest" style="display:none"></div>
+    <div id="tab-all" style="display:none"></div>
+    <div id="tab-stats" style="display:none"></div>
   </div>
 
   <script>
-    let currentData = null;
+    // ── State ───────────────────────────────────────────────────────────
+    let sessionId = null;
+    let allPulls = [];
+    let reportTitle = '';
+    let bossName = '';
+    let activeTab = 'latest';
     let currentSort = 'pull_number';
+    let autoRefreshHandle = null;
 
-    async function runAnalysis() {
+    // ── Session management ──────────────────────────────────────────────
+
+    async function startSession() {
       const logUrl = document.getElementById('log-url').value.trim();
       const vodInput = document.getElementById('vod-url').value.trim();
       if (!logUrl) { showStatus('Enter a WarcraftLogs URL', 'error'); return; }
@@ -129,7 +222,6 @@
       const btn = document.getElementById('analyze-btn');
       btn.disabled = true;
       btn.textContent = 'Analyzing...';
-      document.getElementById('results').innerHTML = '';
 
       const startTime = performance.now();
       showStatus('Fetching data from WarcraftLogs and Twitch — 0s elapsed...', 'loading');
@@ -139,27 +231,35 @@
       }, 1000);
 
       const streamDelay = parseInt(document.getElementById('stream-delay').value) || 0;
-      let params = `log=${encodeURIComponent(logUrl)}`;
+      const body = { log: logUrl, delay: streamDelay };
+
       if (vodInput) {
         if (vodInput.includes('twitch.tv/videos/')) {
-          params += `&vod=${encodeURIComponent(vodInput)}`;
+          body.vod = vodInput;
         } else {
-          const channel = vodInput.replace(/^https?:\/\/(www\.)?twitch\.tv\//, '').replace(/\/$/, '');
-          params += `&channel=${encodeURIComponent(channel)}`;
+          body.channel = vodInput.replace(/^https?:\/\/(www\.)?twitch\.tv\//, '').replace(/\/$/, '');
         }
-      }
-      if (streamDelay > 0) {
-        params += `&delay=${streamDelay}`;
       }
 
       try {
-        const resp = await fetch(`/api/analyze?${params}`);
+        const resp = await fetch('/api/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
         const data = await resp.json();
         clearInterval(timerInterval);
+
         if (data.error) { showStatus(data.error, 'error'); return; }
-        currentData = data;
+
+        sessionId = data.session_id;
+        allPulls = data.pulls;
+        reportTitle = data.report_title;
+        bossName = data.boss_name;
+
         hideStatus();
-        renderResults(data);
+        showSessionUI(data.elapsed_seconds);
+        renderActiveTab();
       } catch (e) {
         clearInterval(timerInterval);
         showStatus(`Request failed: ${e.message}`, 'error');
@@ -168,6 +268,53 @@
         btn.textContent = 'Analyze';
       }
     }
+
+    async function refreshSession() {
+      if (!sessionId) return;
+      const btn = document.getElementById('refresh-btn');
+      btn.disabled = true;
+      btn.textContent = 'Refreshing...';
+
+      try {
+        const resp = await fetch(`/api/session/${sessionId}/refresh`, { method: 'POST' });
+        const data = await resp.json();
+
+        if (data.error) {
+          if (data.error.includes('not found')) {
+            showStatus('Session expired. Click Analyze to reload.', 'error');
+            resetUI();
+          } else {
+            showStatus(data.error, 'error');
+          }
+          return;
+        }
+
+        if (data.new_pulls > 0) {
+          allPulls.push(...data.new_pull_data);
+          renderActiveTab();
+          flashIndicator(`${data.new_pulls} new pull${data.new_pulls > 1 ? 's' : ''} detected!`);
+        }
+      } catch (e) {
+        showStatus(`Refresh failed: ${e.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Refresh';
+      }
+    }
+
+    function toggleAutoRefresh() {
+      if (autoRefreshHandle) {
+        clearInterval(autoRefreshHandle);
+        autoRefreshHandle = null;
+      }
+      const enabled = document.getElementById('auto-refresh').checked;
+      if (enabled) {
+        const seconds = parseInt(document.getElementById('refresh-interval').value);
+        autoRefreshHandle = setInterval(refreshSession, seconds * 1000);
+      }
+    }
+
+    // ── UI helpers ──────────────────────────────────────────────────────
 
     function showStatus(msg, type) {
       const el = document.getElementById('status');
@@ -178,16 +325,132 @@
       document.getElementById('status').className = 'status';
     }
 
-    function renderResults(data) {
-      const container = document.getElementById('results');
-      let pulls = [...data.pulls];
-      pulls = sortPulls(pulls, currentSort);
+    function showSessionUI(elapsed) {
+      document.getElementById('refresh-btn').style.display = '';
+      document.getElementById('refresh-controls').classList.add('visible');
+      document.getElementById('tab-bar').classList.add('visible');
+    }
 
-      const elapsed = data.elapsed_seconds ? ` (generated in ${data.elapsed_seconds}s)` : '';
+    function resetUI() {
+      sessionId = null;
+      allPulls = [];
+      document.getElementById('refresh-btn').style.display = 'none';
+      document.getElementById('refresh-controls').classList.remove('visible');
+      document.getElementById('tab-bar').classList.remove('visible');
+      document.getElementById('tab-latest').innerHTML = '';
+      document.getElementById('tab-all').innerHTML = '';
+      document.getElementById('tab-stats').innerHTML = '';
+      if (autoRefreshHandle) { clearInterval(autoRefreshHandle); autoRefreshHandle = null; }
+      document.getElementById('auto-refresh').checked = false;
+    }
+
+    function flashIndicator(msg) {
+      const el = document.getElementById('refresh-indicator');
+      el.textContent = msg;
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 3000);
+    }
+
+    // ── Tab switching ───────────────────────────────────────────────────
+
+    function switchTab(tab) {
+      activeTab = tab;
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      document.getElementById('tab-latest').style.display = tab === 'latest' ? '' : 'none';
+      document.getElementById('tab-all').style.display = tab === 'all' ? '' : 'none';
+      document.getElementById('tab-stats').style.display = tab === 'stats' ? '' : 'none';
+      renderActiveTab();
+    }
+
+    function renderActiveTab() {
+      if (activeTab === 'latest') renderLatestPull();
+      else if (activeTab === 'all') renderAllPulls();
+      else if (activeTab === 'stats') renderStatistics();
+    }
+
+    // ── Latest Pull tab ─────────────────────────────────────────────────
+
+    function renderLatestPull() {
+      const container = document.getElementById('tab-latest');
+      if (!allPulls.length) {
+        container.innerHTML = '<div class="latest-no-pull">No pulls yet. Waiting for data...</div>';
+        return;
+      }
+
+      const pull = allPulls[allPulls.length - 1];
+      const badge = pull.is_kill
+        ? '<span class="kill-badge">Kill</span>'
+        : '<span class="wipe-badge">Wipe</span>';
+
+      let causeBlock = '';
+      if (pull.is_kill) {
+        causeBlock = `<div class="latest-kill-box"><div class="kill-title">Boss Killed!</div></div>`;
+      } else if (pull.wipe) {
+        const ctx = pull.wipe.context ? `<div class="wipe-context">${esc(pull.wipe.context)}</div>` : '';
+        const vodLink = pull.wipe.vod_url
+          ? `<a href="${pull.wipe.vod_url}" target="_blank">Watch in VOD &#9654;</a>` : '';
+        causeBlock = `
+          <div class="latest-wipe-box">
+            <div class="wipe-title">${esc(pull.wipe.cause_label)}</div>
+            <div class="wipe-desc">${esc(pull.wipe.cause_description)}</div>
+            ${ctx}
+            <div class="wipe-meta">
+              <span>at ${pull.wipe.timestamp_display} into pull</span>
+              ${vodLink}
+            </div>
+          </div>`;
+      }
+
+      // Combined death timeline
+      const allDeaths = [...(pull.early_deaths || []), ...(pull.wipe_deaths || [])];
+      allDeaths.sort((a, b) => a.fight_relative_ms - b.fight_relative_ms);
+
+      let deathRows = '';
+      if (allDeaths.length) {
+        deathRows = `
+          <div class="detail-section">
+            <h3>Death Timeline (${allDeaths.length} deaths)</h3>
+            <table class="death-table">
+              <tr><th>#</th><th>Player</th><th>Time</th><th>Cause</th><th>VOD</th></tr>
+              ${allDeaths.map(d => `
+                <tr style="${d.is_wipe_death ? 'background:#1c121488' : ''}">
+                  <td class="timestamp">${d.death_order}</td>
+                  <td class="player">${esc(d.player)}</td>
+                  <td class="timestamp">${d.timestamp_display}</td>
+                  <td class="cause" title="${esc(d.cause_description)}">${esc(d.cause_label)}</td>
+                  <td>${d.vod_url ? `<a href="${d.vod_url}" target="_blank">&#9654; ${d.vod_time}</a>` : '&mdash;'}</td>
+                </tr>
+              `).join('')}
+            </table>
+          </div>`;
+      }
+
+      container.innerHTML = `
+        <div class="latest-card">
+          <div class="latest-header">
+            <span class="latest-pull-num">#${pull.pull_number}</span>
+            <div class="latest-meta">
+              <span class="pull-duration">${pull.duration_display}</span>
+              <span class="pull-phase">${pull.phase_reached}</span>
+              ${badge}
+            </div>
+          </div>
+          <div class="latest-body">
+            ${causeBlock}
+            ${deathRows}
+          </div>
+        </div>`;
+    }
+
+    // ── All Pulls tab ───────────────────────────────────────────────────
+
+    function renderAllPulls() {
+      const container = document.getElementById('tab-all');
+      let pulls = sortPulls([...allPulls], currentSort);
 
       let html = `
         <div class="results-header">
-          <h2>${data.boss_name} — ${data.pull_count} pulls<span style="color:#7d8590;font-weight:400;font-size:0.85rem">${elapsed}</span></h2>
+          <h2>${esc(bossName)} &mdash; ${allPulls.length} pulls</h2>
           <div class="sort-controls">
             <label>Sort by:</label>
             <select onchange="changeSort(this.value)">
@@ -207,7 +470,7 @@
           : '<span class="wipe-badge">Wipe</span>';
         const wipeLabel = pull.wipe ? pull.wipe.cause_label : (pull.is_kill ? 'Kill' : '—');
         const vodLink = pull.wipe && pull.wipe.vod_url
-          ? `<a href="${pull.wipe.vod_url}" target="_blank">VOD ▶</a>` : '';
+          ? `<a href="${pull.wipe.vod_url}" target="_blank">VOD &#9654;</a>` : '';
 
         html += `
           <div class="pull-card" id="pull-${pull.pull_number}">
@@ -216,9 +479,9 @@
               <span class="pull-duration">${pull.duration_display}</span>
               <span class="pull-phase">${pull.phase_reached}</span>
               ${badge}
-              <span class="pull-wipe-label">${wipeLabel}</span>
+              <span class="pull-wipe-label">${esc(wipeLabel)}</span>
               <span class="pull-vod-link">${vodLink}</span>
-              <span class="pull-expand">▶</span>
+              <span class="pull-expand">&#9654;</span>
             </div>
             <div class="pull-detail">
               ${renderPullDetail(pull)}
@@ -234,24 +497,24 @@
     function renderPullDetail(pull) {
       let html = '';
 
-      // Wipe cause section
       if (pull.wipe) {
+        const ctx = pull.wipe.context ? `<div class="wipe-context">${esc(pull.wipe.context)}</div>` : '';
         html += `
           <div class="detail-section">
             <h3>Wipe Cause</h3>
             <div class="wipe-box">
-              <div class="wipe-title">${pull.wipe.cause_label}</div>
-              <div class="wipe-desc">${pull.wipe.cause_description}</div>
+              <div class="wipe-title">${esc(pull.wipe.cause_label)}</div>
+              <div class="wipe-desc">${esc(pull.wipe.cause_description)}</div>
+              ${ctx}
               <div class="wipe-meta">
                 <span>at ${pull.wipe.timestamp_display} into pull</span>
-                ${pull.wipe.vod_url ? `<a href="${pull.wipe.vod_url}" target="_blank">Watch in VOD ▶</a>` : ''}
+                ${pull.wipe.vod_url ? `<a href="${pull.wipe.vod_url}" target="_blank">Watch in VOD &#9654;</a>` : ''}
               </div>
             </div>
           </div>
         `;
       }
 
-      // Early deaths (non-wipe)
       if (pull.early_deaths && pull.early_deaths.length > 0) {
         html += `
           <div class="detail-section">
@@ -261,10 +524,10 @@
               ${pull.early_deaths.map(d => `
                 <tr>
                   <td class="timestamp">${d.death_order}</td>
-                  <td class="player">${d.player}</td>
+                  <td class="player">${esc(d.player)}</td>
                   <td class="timestamp">${d.timestamp_display}</td>
-                  <td class="cause" title="${d.cause_description}">${d.cause_label}</td>
-                  <td>${d.vod_url ? `<a href="${d.vod_url}" target="_blank">▶ ${d.vod_time}</a>` : '—'}</td>
+                  <td class="cause" title="${esc(d.cause_description)}">${esc(d.cause_label)}</td>
+                  <td>${d.vod_url ? `<a href="${d.vod_url}" target="_blank">&#9654; ${d.vod_time}</a>` : '&mdash;'}</td>
                 </tr>
               `).join('')}
             </table>
@@ -272,7 +535,6 @@
         `;
       }
 
-      // Wipe deaths
       if (pull.wipe_deaths && pull.wipe_deaths.length > 0) {
         html += `
           <div class="detail-section">
@@ -282,10 +544,10 @@
               ${pull.wipe_deaths.map(d => `
                 <tr>
                   <td class="timestamp">${d.death_order}</td>
-                  <td class="player">${d.player}</td>
+                  <td class="player">${esc(d.player)}</td>
                   <td class="timestamp">${d.timestamp_display}</td>
-                  <td class="cause" title="${d.killing_ability}">${d.cause_label}</td>
-                  <td>${d.vod_url ? `<a href="${d.vod_url}" target="_blank">▶ ${d.vod_time}</a>` : '—'}</td>
+                  <td class="cause" title="${esc(d.killing_ability)}">${esc(d.cause_label)}</td>
+                  <td>${d.vod_url ? `<a href="${d.vod_url}" target="_blank">&#9654; ${d.vod_time}</a>` : '&mdash;'}</td>
                 </tr>
               `).join('')}
             </table>
@@ -302,7 +564,7 @@
 
     function togglePull(num) {
       const card = document.getElementById(`pull-${num}`);
-      card.classList.toggle('open');
+      if (card) card.classList.toggle('open');
     }
 
     function sortPulls(pulls, key) {
@@ -329,13 +591,168 @@
 
     function changeSort(value) {
       currentSort = value;
-      if (currentData) renderResults(currentData);
+      renderAllPulls();
     }
 
-    // Allow Enter key to submit
+    // ── Statistics tab ──────────────────────────────────────────────────
+
+    function renderStatistics() {
+      const container = document.getElementById('tab-stats');
+      if (!allPulls.length) {
+        container.innerHTML = '<div class="latest-no-pull">No pulls yet.</div>';
+        return;
+      }
+
+      const wipes = allPulls.filter(p => !p.is_kill);
+      const kills = allPulls.filter(p => p.is_kill);
+      const avgDuration = wipes.length
+        ? Math.round(wipes.reduce((s, p) => s + p.duration_ms, 0) / wipes.length)
+        : 0;
+      const bestPull = [...allPulls].sort((a, b) => b.duration_ms - a.duration_ms)[0];
+
+      // Wipe cause counts
+      const wipeCounts = {};
+      for (const p of wipes) {
+        const label = p.wipe ? p.wipe.cause_label : 'Unknown';
+        wipeCounts[label] = (wipeCounts[label] || 0) + 1;
+      }
+      const wipeSorted = Object.entries(wipeCounts).sort((a, b) => b[1] - a[1]);
+      const maxWipe = wipeSorted.length ? wipeSorted[0][1] : 1;
+
+      // Phase counts
+      const phaseCounts = {};
+      for (const p of allPulls) {
+        phaseCounts[p.phase_reached] = (phaseCounts[p.phase_reached] || 0) + 1;
+      }
+      const phaseSorted = Object.entries(phaseCounts).sort((a, b) => b[1] - a[1]);
+      const maxPhase = phaseSorted.length ? phaseSorted[0][1] : 1;
+
+      // Per-player death counts
+      const playerDeaths = {};
+      const playerCauses = {};
+      for (const p of allPulls) {
+        for (const d of [...(p.early_deaths || []), ...(p.wipe_deaths || [])]) {
+          playerDeaths[d.player] = (playerDeaths[d.player] || 0) + 1;
+          if (!playerCauses[d.player]) playerCauses[d.player] = {};
+          playerCauses[d.player][d.cause_label] = (playerCauses[d.player][d.cause_label] || 0) + 1;
+        }
+      }
+      const playerSorted = Object.entries(playerDeaths).sort((a, b) => b[1] - a[1]);
+
+      // Top killing abilities
+      const abilityCounts = {};
+      for (const p of allPulls) {
+        for (const d of [...(p.early_deaths || []), ...(p.wipe_deaths || [])]) {
+          abilityCounts[d.killing_ability] = (abilityCounts[d.killing_ability] || 0) + 1;
+        }
+      }
+      const abilitySorted = Object.entries(abilityCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+      const maxAbility = abilitySorted.length ? abilitySorted[0][1] : 1;
+
+      const barColors = ['#58a6ff', '#3fb950', '#f0883e', '#a371f7', '#f85149', '#79c0ff', '#56d364', '#d2a8ff', '#ffa657', '#ff7b72'];
+
+      container.innerHTML = `
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value">${allPulls.length}</div>
+            <div class="stat-label">Total Pulls</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${wipes.length}</div>
+            <div class="stat-label">Wipes</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${kills.length}</div>
+            <div class="stat-label">Kills</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${fmtMmss(avgDuration)}</div>
+            <div class="stat-label">Avg Wipe Duration</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${bestPull.duration_display}</div>
+            <div class="stat-label">Longest Pull (#${bestPull.pull_number})</div>
+          </div>
+        </div>
+
+        <div class="stats-section">
+          <h3>Wipe Cause Breakdown</h3>
+          ${wipeSorted.map(([label, count], i) => `
+            <div class="stat-bar-row">
+              <span class="stat-bar-label">${esc(label)}</span>
+              <div class="stat-bar-track">
+                <div class="stat-bar-fill" style="width:${(count/maxWipe*100).toFixed(1)}%;background:${barColors[i % barColors.length]}"></div>
+              </div>
+              <span class="stat-bar-count">${count}</span>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="stats-section">
+          <h3>Phase Reached</h3>
+          ${phaseSorted.map(([label, count], i) => `
+            <div class="stat-bar-row">
+              <span class="stat-bar-label">${esc(label)}</span>
+              <div class="stat-bar-track">
+                <div class="stat-bar-fill" style="width:${(count/maxPhase*100).toFixed(1)}%;background:${barColors[i % barColors.length]}"></div>
+              </div>
+              <span class="stat-bar-count">${count}</span>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="stats-section">
+          <h3>Top Killing Abilities</h3>
+          ${abilitySorted.map(([label, count], i) => `
+            <div class="stat-bar-row">
+              <span class="stat-bar-label">${esc(label)}</span>
+              <div class="stat-bar-track">
+                <div class="stat-bar-fill" style="width:${(count/maxAbility*100).toFixed(1)}%;background:${barColors[i % barColors.length]}"></div>
+              </div>
+              <span class="stat-bar-count">${count}</span>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="stats-section">
+          <h3>Deaths by Player</h3>
+          <table class="stats-table">
+            <tr><th>Player</th><th>Deaths</th><th>Most Common Cause</th></tr>
+            ${playerSorted.map(([name, count]) => {
+              const causes = playerCauses[name];
+              const topCause = Object.entries(causes).sort((a, b) => b[1] - a[1])[0];
+              return `<tr>
+                <td class="player">${esc(name)}</td>
+                <td>${count}</td>
+                <td class="cause">${esc(topCause[0])} (${topCause[1]})</td>
+              </tr>`;
+            }).join('')}
+          </table>
+        </div>
+      `;
+    }
+
+    // ── Utility ─────────────────────────────────────────────────────────
+
+    function esc(s) {
+      if (!s) return '';
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    function fmtMmss(ms) {
+      const totalSecs = Math.floor(ms / 1000);
+      const m = Math.floor(totalSecs / 60);
+      const s = totalSecs % 60;
+      return `${m}:${s.toString().padStart(2, '0')}`;
+    }
+
+    // Enter key submits
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !document.getElementById('analyze-btn').disabled) {
-        runAnalysis();
+        if (sessionId) refreshSession();
+        else startSession();
       }
     });
   </script>

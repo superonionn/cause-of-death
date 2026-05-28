@@ -1,4 +1,8 @@
-"""Main analysis pipeline — ties together WCL, VOD, and boss classification."""
+"""Main analysis pipeline — ties together WCL, VOD, and boss classification.
+
+Provides both the original one-shot analyze() and extracted building-block
+functions used by the session-based incremental pipeline.
+"""
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -10,38 +14,12 @@ import bosses
 import bosses.midnight_falls  # registers the boss
 
 
-def analyze(wcl_url: str, vod_url: str | None = None, channel: str | None = None, stream_delay_s: int = 0) -> dict:
-    token = wcl.get_token()
-    code = wcl.parse_report_code(wcl_url)
-    report = wcl.fetch_report(token, code)
-    actors = wcl.get_actors(report)
-    abilities = wcl.get_abilities(report)
+# ── Reusable building blocks ────────────────────────────────────────────────
 
-    report_start = wcl.report_start_utc(report)
-    report_end = datetime.fromtimestamp(report["endTime"] / 1000, tz=timezone.utc)
-
-    # VOD segments
-    vod_segments = _get_vod_segments(vod_url, channel, report_start, report_end)
-
-    # Find boss fights — for now, only Midnight Falls
-    boss_name = "Midnight Falls"
-    boss_config = bosses.get_boss(boss_name)
-    if not boss_config:
-        return {"error": f"No boss config registered for '{boss_name}'"}
-
-    boss_fights = wcl.get_fights_by_boss(report, boss_name)
-    if not boss_fights:
-        return {"error": f"No {boss_name} fights found in this log"}
-
-    # Fetch events — deaths are small enough to bulk-fetch, damage must be per-fight
-    fight_ids = [f["id"] for f in boss_fights]
-    death_events = wcl.fetch_fight_events(token, code, fight_ids, "Deaths")
-    tank_ids = wcl.get_tank_ids(token, code, fight_ids)
-
-    # Pre-fetch damage for wipe pulls in parallel (kills don't need damage classification)
-    wipe_fights = [f for f in boss_fights if not f.get("kill")]
+def fetch_damage_parallel(token: str, code: str, wipe_fights: list[dict],
+                          max_workers: int = 6) -> dict[int, list[dict]]:
     damage_by_fight: dict[int, list[dict]] = {}
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
             pool.submit(wcl.fetch_fight_events, token, code, [f["id"]], "DamageTaken"): f["id"]
             for f in wipe_fights
@@ -49,8 +27,23 @@ def analyze(wcl_url: str, vod_url: str | None = None, channel: str | None = None
         for future in as_completed(futures):
             fid = futures[future]
             damage_by_fight[fid] = future.result()
+    return damage_by_fight
 
-    # Classify each pull
+
+def classify_fights(
+    boss_config,
+    boss_fights: list[dict],
+    death_events: list[dict],
+    damage_by_fight: dict[int, list[dict]],
+    actors: dict[int, dict],
+    abilities: dict[int, dict],
+    tank_ids: set[int],
+    healer_ids: set[int],
+    vod_segments: list[dict],
+    report_start: datetime,
+    stream_delay_s: int = 0,
+    pull_number_offset: int = 0,
+) -> list[dict]:
     pulls = []
     for i, fight in enumerate(boss_fights):
         fight_start_ms = fight["startTime"]
@@ -65,7 +58,6 @@ def analyze(wcl_url: str, vod_url: str | None = None, channel: str | None = None
             fight, fight_deaths, fight_damage, actors, abilities, tank_ids,
         )
 
-        # Calculate VOD timestamps for each death
         death_list = []
         for d in deaths:
             death_time_utc = report_start + timedelta(milliseconds=d.timestamp_ms)
@@ -91,7 +83,11 @@ def analyze(wcl_url: str, vod_url: str | None = None, channel: str | None = None
                 "vod_time": vod_time_str,
             })
 
-        # VOD timestamp for wipe
+        wipe_context = ""
+        if wipe:
+            early_role_deaths = [d for d in deaths if not d.is_wipe_death]
+            wipe_context = _build_wipe_context(early_role_deaths, healer_ids, tank_ids)
+
         wipe_data = None
         if wipe:
             wipe_time_utc = report_start + timedelta(milliseconds=fight_start_ms + wipe.timestamp_ms)
@@ -107,17 +103,17 @@ def analyze(wcl_url: str, vod_url: str | None = None, channel: str | None = None
                 "cause_id": wipe.cause_id,
                 "cause_label": wipe.cause_label,
                 "cause_description": wipe.cause_description,
+                "context": wipe_context,
                 "timestamp_display": vod.fmt_mmss(wipe.timestamp_ms),
                 "vod_url": wipe_vod_url,
                 "vod_time": wipe_vod_time,
             }
 
-        # Split deaths into early (non-wipe) and wipe deaths
         early_deaths = [d for d in death_list if not d["is_wipe_death"]]
         wipe_deaths = [d for d in death_list if d["is_wipe_death"]]
 
         pulls.append({
-            "pull_number": i + 1,
+            "pull_number": pull_number_offset + i + 1,
             "fight_id": fight["id"],
             "duration_ms": duration_ms,
             "duration_display": vod.fmt_mmss(duration_ms),
@@ -129,16 +125,11 @@ def analyze(wcl_url: str, vod_url: str | None = None, channel: str | None = None
             "total_deaths": len(death_list),
         })
 
-    return {
-        "report_title": report.get("title", code),
-        "boss_name": boss_name,
-        "pull_count": len(pulls),
-        "pulls": pulls,
-    }
+    return pulls
 
 
-def _get_vod_segments(vod_url: str | None, channel: str | None,
-                      report_start: datetime, report_end: datetime) -> list[dict]:
+def get_vod_segments(vod_url: str | None, channel: str | None,
+                     report_start: datetime, report_end: datetime) -> list[dict]:
     if vod_url:
         return vod.get_vod_segments([vod_url])
     if channel:
@@ -147,3 +138,81 @@ def _get_vod_segments(vod_url: str | None, channel: str | None,
     if default_channel:
         return vod.discover_channel_vods(default_channel, report_start, report_end)
     return []
+
+
+def filter_boss_fights(report: dict, boss_name: str) -> list[dict]:
+    fights = wcl.get_fights_by_boss(report, boss_name)
+    return [f for f in fights if f["endTime"] - f["startTime"] >= 3000]
+
+
+def _build_wipe_context(early_deaths: list, healer_ids: set[int], tank_ids: set[int]) -> str:
+    if not early_deaths:
+        return ""
+
+    healer_deaths = [d for d in early_deaths if d.player_id in healer_ids]
+    tank_deaths = [d for d in early_deaths if d.player_id in tank_ids]
+
+    parts = []
+
+    if healer_deaths:
+        by_ability: dict[str, list[str]] = {}
+        for d in healer_deaths:
+            by_ability.setdefault(d.killing_ability, []).append(d.player_name)
+        for ability, names in by_ability.items():
+            if len(names) == 1:
+                parts.append(f"healer {names[0]} died to {ability}")
+            else:
+                parts.append(f"{len(names)} healers died to {ability} ({', '.join(names)})")
+
+    if tank_deaths:
+        for d in tank_deaths:
+            parts.append(f"tank {d.player_name} died to {d.killing_ability}")
+
+    if not parts:
+        return ""
+
+    return "Before the wipe: " + "; ".join(parts)
+
+
+# ── One-shot analysis (backward-compatible) ─────────────────────────────────
+
+def analyze(wcl_url: str, vod_url: str | None = None, channel: str | None = None, stream_delay_s: int = 0) -> dict:
+    token = wcl.get_token()
+    code = wcl.parse_report_code(wcl_url)
+    report = wcl.fetch_report(token, code)
+    actors = wcl.get_actors(report)
+    abilities = wcl.get_abilities(report)
+
+    report_start = wcl.report_start_utc(report)
+    report_end = datetime.fromtimestamp(report["endTime"] / 1000, tz=timezone.utc)
+
+    vod_segments = get_vod_segments(vod_url, channel, report_start, report_end)
+
+    boss_name = "Midnight Falls"
+    boss_config = bosses.get_boss(boss_name)
+    if not boss_config:
+        return {"error": f"No boss config registered for '{boss_name}'"}
+
+    boss_fights = filter_boss_fights(report, boss_name)
+    if not boss_fights:
+        return {"error": f"No {boss_name} fights found in this log"}
+
+    fight_ids = [f["id"] for f in boss_fights]
+    death_events = wcl.fetch_fight_events(token, code, fight_ids, "Deaths")
+    tank_ids, healer_ids = wcl.get_role_ids(token, code, fight_ids)
+
+    wipe_fights = [f for f in boss_fights if not f.get("kill")]
+    damage_by_fight = fetch_damage_parallel(token, code, wipe_fights)
+
+    pulls = classify_fights(
+        boss_config, boss_fights, death_events, damage_by_fight,
+        actors, abilities, tank_ids, healer_ids,
+        vod_segments, report_start, stream_delay_s,
+    )
+
+    return {
+        "report_title": report.get("title", code),
+        "boss_name": boss_name,
+        "pull_count": len(pulls),
+        "pulls": pulls,
+    }

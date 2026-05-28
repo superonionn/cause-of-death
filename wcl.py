@@ -194,7 +194,7 @@ query($code: String!, $fightIDs: [Int]!) {
 """
 
 
-def get_tank_ids(token: str, code: str, fight_ids: list[int]) -> set[int]:
+def get_role_ids(token: str, code: str, fight_ids: list[int]) -> tuple[set[int], set[int]]:
     result = _wcl_post(token, PLAYER_DETAILS_QUERY, {
         "code": code,
         "fightIDs": fight_ids[:1],
@@ -203,4 +203,5 @@ def get_tank_ids(token: str, code: str, fight_ids: list[int]) -> set[int]:
     if isinstance(pd, dict):
         pd = pd.get("data", {}).get("playerDetails", {})
     tanks = pd.get("tanks", [])
-    return {t["id"] for t in tanks}
+    healers = pd.get("healers", [])
+    return {t["id"] for t in tanks}, {h["id"] for h in healers}
