@@ -130,13 +130,16 @@ def classify_fights(
 
 def get_vod_segments(vod_url: str | None, channel: str | None,
                      report_start: datetime, report_end: datetime) -> list[dict]:
-    if vod_url:
-        return vod.get_vod_segments([vod_url])
-    if channel:
-        return vod.discover_channel_vods(channel, report_start, report_end)
-    default_channel = os.environ.get("TWITCH_CHANNEL")
-    if default_channel:
-        return vod.discover_channel_vods(default_channel, report_start, report_end)
+    try:
+        if vod_url:
+            return vod.get_vod_segments([vod_url])
+        if channel:
+            return vod.discover_channel_vods(channel, report_start, report_end)
+        default_channel = os.environ.get("TWITCH_CHANNEL")
+        if default_channel:
+            return vod.discover_channel_vods(default_channel, report_start, report_end)
+    except Exception:
+        pass
     return []
 
 
