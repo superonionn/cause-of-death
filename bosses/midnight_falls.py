@@ -330,7 +330,7 @@ class MidnightFalls:
             ambient_after = [
                 d for d in fight_deaths
                 if d["fight_relative_ms"] > gd["fight_relative_ms"]
-                and d["fight_relative_ms"] <= gd["fight_relative_ms"] + 5_000
+                and d["fight_relative_ms"] <= gd["fight_relative_ms"] + 8_000
                 and d["category"] in ("ambient", "unknown", "lights_end", "midnight", "naarus_lament", "radiance", "resonance")
             ]
             if len(ambient_after) >= 5:
@@ -612,13 +612,24 @@ class MidnightFalls:
                                 f"{desc} ({len(all_terminate)} players killed)",
                                 wipe_time), wipe_death_ids
 
-        # If Light's End is in the wipe cluster AND there's a clear crystal sub-cause
-        # (trigger mechanic death or damage nearby), let the phase classifier handle it.
-        # The trigger death may be OUTSIDE the wipe cluster (e.g., constellation kills
-        # crystal holder, then LE dot ticks over 15-20s killing everyone — the
-        # constellation death is too early for the cluster window).
+        # Crystal cascade: a trigger mechanic (glaive, beam, etc.) kills a crystal
+        # holder, causing mass ambient deaths. The killing blow is often ambient
+        # (Glimmering, Shattered Sky) rather than Light's End directly. Detect this
+        # pattern and defer to the phase classifier.
+        trigger_cats = {"glaive", "beam", "starsplinter", "criticality", "dark_constellation"}
+        for td in wipe_cluster:
+            if td["category"] in trigger_cats:
+                ambient_after = [
+                    d for d in wipe_cluster
+                    if d["fight_relative_ms"] > td["fight_relative_ms"]
+                    and d["fight_relative_ms"] <= td["fight_relative_ms"] + 8_000
+                    and d["category"] in ("ambient", "unknown", "lights_end", "midnight",
+                                          "naarus_lament", "radiance", "resonance")
+                ]
+                if len(ambient_after) >= 5:
+                    return None
+
         if mechanic_counts.get("lights_end", 0) >= 1:
-            trigger_cats = {"glaive", "beam", "starsplinter", "criticality", "dark_constellation"}
             if any(d["category"] in trigger_cats for d in wipe_cluster):
                 return None
             le_deaths = [d for d in wipe_cluster if d["category"] == "lights_end"]
