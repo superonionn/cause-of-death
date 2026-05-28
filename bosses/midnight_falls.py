@@ -332,8 +332,14 @@ class MidnightFalls:
                 return WipeInfo("terminate", label, f"{desc} ({len(terminate_deaths)} players killed)", wipe_time), wipe_death_ids
 
         # Glaive kills crystal holder → mass ambient deaths (LE doesn't always show as killing blow)
+        # Skip if cosmic fracture already killed 3+ people before the glaive — that's the root cause.
         glaive_deaths = [d for d in fight_deaths if d["category"] == "glaive" and d["player_id"] not in tank_ids]
         for gd in glaive_deaths:
+            cf_before = [d for d in fight_deaths
+                         if d["category"] == "cosmic_fracture"
+                         and d["fight_relative_ms"] <= gd["fight_relative_ms"]]
+            if len(cf_before) >= 3:
+                continue
             ambient_after = [
                 d for d in fight_deaths
                 if d["fight_relative_ms"] > gd["fight_relative_ms"]
@@ -345,6 +351,16 @@ class MidnightFalls:
                 return WipeInfo("lights_end_glaive", label,
                                 f"Glaive killed crystal carrier ({gd['player_name']}), triggering a cascade wipe",
                                 wipe_time), wipe_death_ids
+
+        # Cosmic fracture = crystal not killed/healed. If it happened before other
+        # cascade mechanics (LE, glaive), it's the root cause.
+        if mechanic_counts.get("cosmic_fracture", 0) >= 3:
+            le_or_glaive = [d for d in wipe_cluster if d["category"] in ("lights_end", "glaive")]
+            cf_deaths = [d for d in wipe_cluster if d["category"] == "cosmic_fracture"]
+            first_cf = min(d["fight_relative_ms"] for d in cf_deaths)
+            if not le_or_glaive or first_cf <= min(d["fight_relative_ms"] for d in le_or_glaive):
+                label, desc = _get_wipe_label("cosmic_fracture")
+                return WipeInfo("cosmic_fracture", label, desc, wipe_time), wipe_death_ids
 
         result = self._resolve_dissonance_vs_soak(wipe_cluster, mechanic_counts, wipe_time, wipe_death_ids)
         if result:
@@ -626,6 +642,11 @@ class MidnightFalls:
         trigger_cats = {"glaive", "beam", "starsplinter", "criticality", "dark_constellation"}
         for td in wipe_cluster:
             if td["category"] in trigger_cats:
+                cf_before = [d for d in wipe_cluster
+                             if d["category"] == "cosmic_fracture"
+                             and d["fight_relative_ms"] <= td["fight_relative_ms"]]
+                if len(cf_before) >= 3:
+                    continue
                 ambient_after = [
                     d for d in wipe_cluster
                     if d["fight_relative_ms"] > td["fight_relative_ms"]
