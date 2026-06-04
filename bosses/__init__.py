@@ -1,5 +1,7 @@
 """Boss mechanic registry and base data structures."""
 
+import importlib
+import pkgutil
 from dataclasses import dataclass
 
 
@@ -50,3 +52,29 @@ def register_boss(name: str):
 
 def get_boss(fight_name: str):
     return BOSS_REGISTRY.get(fight_name)
+
+
+_generic_instance = None
+
+
+def get_boss_or_generic(fight_name: str):
+    specific = BOSS_REGISTRY.get(fight_name)
+    if specific:
+        return specific
+    global _generic_instance
+    if _generic_instance is None:
+        from bosses.generic import GenericBoss
+        _generic_instance = GenericBoss()
+    return _generic_instance
+
+
+def _auto_import():
+    """Import all boss modules in this package to trigger @register_boss decorators."""
+    import bosses as pkg
+    for importer, modname, ispkg in pkgutil.iter_modules(pkg.__path__):
+        if modname == "generic":
+            continue
+        importlib.import_module(f"bosses.{modname}")
+
+
+_auto_import()

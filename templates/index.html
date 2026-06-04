@@ -25,6 +25,8 @@
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-secondary { background: #21262d; border-color: #30363d; }
     .btn-secondary:hover { background: #30363d; }
+    .btn-back { background: none; border: none; color: #58a6ff; font-size: 0.9rem; cursor: pointer; padding: 6px 0; margin-bottom: 12px; }
+    .btn-back:hover { text-decoration: underline; }
     .btn-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 
     /* Auto-refresh controls */
@@ -39,6 +41,21 @@
     .status { padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; display: none; }
     .status.loading { display: block; background: #161b22; border: 1px solid #30363d; color: #7d8590; }
     .status.error { display: block; background: #1c1214; border: 1px solid #f85149; color: #f85149; }
+
+    /* ── Encounter Overview ──────────────────────────────────────────── */
+    .encounter-section-title { font-size: 0.85rem; color: #7d8590; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; margin-top: 20px; }
+    .encounter-section-title:first-child { margin-top: 0; }
+    .encounter-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+    .encounter-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px 18px; display: flex; align-items: center; gap: 14px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+    .encounter-card:hover { background: #1c2128; border-color: #58a6ff; }
+    .encounter-icon { font-size: 1.1rem; min-width: 24px; text-align: center; }
+    .encounter-icon.killed { color: #3fb950; }
+    .encounter-icon.not-killed { color: #f85149; }
+    .encounter-name { font-weight: 600; font-size: 0.95rem; flex: 1; }
+    .encounter-stats { display: flex; gap: 14px; align-items: center; font-size: 0.85rem; color: #7d8590; }
+    .encounter-stats .enc-kills { color: #3fb950; }
+    .encounter-stats .enc-wipes { color: #f85149; }
+    .encounter-stats .enc-duration { color: #7d8590; }
 
     /* Tab bar */
     .tab-bar { display: none; border-bottom: 1px solid #30363d; margin-bottom: 16px; }
@@ -151,6 +168,10 @@
     .wowhead-link { color: #f0883e; text-decoration: none; }
     .wowhead-link:hover { text-decoration: underline; }
 
+    /* WCL log link */
+    .wcl-link { color: #58a6ff; text-decoration: none; font-size: 0.8rem; }
+    .wcl-link:hover { text-decoration: underline; }
+
     @media (max-width: 640px) {
       .pull-header { padding: 10px 12px; gap: 8px; }
       .input-row { flex-direction: column; }
@@ -158,6 +179,8 @@
       .btn-row { flex-direction: column; align-items: stretch; }
       .refresh-controls { margin-left: 0; }
       .stat-bar-label { min-width: 120px; font-size: 0.8rem; }
+      .encounter-card { padding: 12px 14px; gap: 10px; }
+      .encounter-stats { gap: 8px; font-size: 0.8rem; }
     }
   </style>
 </head>
@@ -175,7 +198,7 @@
       </div>
       <div class="input-row">
         <div class="field">
-          <label for="vod-url">Twitch VOD URL or Channel Name</label>
+          <label for="vod-url">Twitch VOD URL or Channel Name (optional)</label>
           <input type="text" id="vod-url" placeholder="https://www.twitch.tv/videos/... or channel name">
         </div>
         <div class="field" style="max-width: 160px;">
@@ -203,6 +226,12 @@
 
     <div class="status" id="status"></div>
 
+    <!-- Encounter Overview -->
+    <div id="encounter-overview" style="display:none"></div>
+
+    <!-- Analysis View -->
+    <button class="btn-back" id="back-btn" style="display:none" onclick="showOverview()">&larr; Back to encounters</button>
+
     <div class="tab-bar" id="tab-bar">
       <button class="tab-btn active" data-tab="latest" onclick="switchTab('latest')">Latest Pull</button>
       <button class="tab-btn" data-tab="all" onclick="switchTab('all')">All Pulls</button>
@@ -218,12 +247,14 @@
     // ── State ───────────────────────────────────────────────────────────
     let sessionId = null;
     let allPulls = [];
+    let allEncounters = [];
     let reportTitle = '';
     let bossName = '';
     let activeTab = 'latest';
     let currentSort = 'pull_number';
     let autoRefreshHandle = null;
     let currentFilter = null;
+    let currentView = 'input'; // 'input' | 'overview' | 'analysis'
 
     // ── Session management ──────────────────────────────────────────────
 
@@ -234,13 +265,13 @@
 
       const btn = document.getElementById('analyze-btn');
       btn.disabled = true;
-      btn.textContent = 'Analyzing...';
+      btn.textContent = 'Loading...';
 
       const startTime = performance.now();
-      showStatus('Fetching data from WarcraftLogs and Twitch — 0s elapsed...', 'loading');
+      showStatus('Fetching report from WarcraftLogs — 0s elapsed...', 'loading');
       const timerInterval = setInterval(() => {
         const elapsed = Math.floor((performance.now() - startTime) / 1000);
-        showStatus(`Fetching data from WarcraftLogs and Twitch — ${elapsed}s elapsed...`, 'loading');
+        showStatus(`Fetching report from WarcraftLogs — ${elapsed}s elapsed...`, 'loading');
       }, 1000);
 
       const streamDelay = parseInt(document.getElementById('stream-delay').value) || 0;
@@ -266,19 +297,57 @@
         if (data.error) { showStatus(data.error, 'error'); return; }
 
         sessionId = data.session_id;
-        allPulls = data.pulls;
         reportTitle = data.report_title;
-        bossName = data.boss_name;
+        allEncounters = data.encounters || [];
 
         hideStatus();
-        showSessionUI();
-        switchTab('latest');
+
+        if (allEncounters.length === 1) {
+          analyzeEncounter(allEncounters[0].name);
+        } else {
+          showOverview();
+        }
       } catch (e) {
         clearInterval(timerInterval);
         showStatus(`Request failed: ${e.message}`, 'error');
       } finally {
         btn.disabled = false;
         btn.textContent = 'Analyze';
+      }
+    }
+
+    async function analyzeEncounter(encounterName) {
+      const startTime = performance.now();
+      showStatus(`Analyzing ${encounterName} — 0s elapsed...`, 'loading');
+      const timerInterval = setInterval(() => {
+        const elapsed = Math.floor((performance.now() - startTime) / 1000);
+        showStatus(`Analyzing ${encounterName} — ${elapsed}s elapsed...`, 'loading');
+      }, 1000);
+
+      hideAnalysisView();
+      document.getElementById('encounter-overview').style.display = 'none';
+
+      try {
+        const resp = await fetch(`/api/session/${sessionId}/analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ boss: encounterName }),
+        });
+        const data = await resp.json();
+        clearInterval(timerInterval);
+
+        if (data.error) { showStatus(data.error, 'error'); showOverview(); return; }
+
+        allPulls = data.pulls || [];
+        bossName = data.boss_name;
+        allEncounters = data.encounters || allEncounters;
+
+        hideStatus();
+        showAnalysisView();
+      } catch (e) {
+        clearInterval(timerInterval);
+        showStatus(`Analysis failed: ${e.message}`, 'error');
+        showOverview();
       }
     }
 
@@ -327,6 +396,104 @@
       }
     }
 
+    // ── View management ─────────────────────────────────────────────────
+
+    function showOverview() {
+      currentView = 'overview';
+      hideStatus();
+      hideAnalysisView();
+      stopAutoRefresh();
+      renderEncounterOverview();
+      document.getElementById('encounter-overview').style.display = '';
+      document.getElementById('back-btn').style.display = 'none';
+    }
+
+    function showAnalysisView() {
+      currentView = 'analysis';
+      document.getElementById('encounter-overview').style.display = 'none';
+      document.getElementById('back-btn').style.display = allEncounters.length > 1 ? '' : 'none';
+      document.getElementById('refresh-btn').style.display = '';
+      document.getElementById('refresh-controls').classList.add('visible');
+      document.getElementById('tab-bar').classList.add('visible');
+      currentSort = 'pull_number';
+      currentFilter = null;
+      switchTab('latest');
+    }
+
+    function hideAnalysisView() {
+      document.getElementById('tab-bar').classList.remove('visible');
+      document.getElementById('tab-latest').style.display = 'none';
+      document.getElementById('tab-all').style.display = 'none';
+      document.getElementById('tab-stats').style.display = 'none';
+      document.getElementById('refresh-btn').style.display = 'none';
+      document.getElementById('refresh-controls').classList.remove('visible');
+      document.getElementById('back-btn').style.display = 'none';
+    }
+
+    function stopAutoRefresh() {
+      if (autoRefreshHandle) {
+        clearInterval(autoRefreshHandle);
+        autoRefreshHandle = null;
+      }
+      document.getElementById('auto-refresh').checked = false;
+    }
+
+    // ── Encounter Overview ──────────────────────────────────────────────
+
+    function renderEncounterOverview() {
+      const container = document.getElementById('encounter-overview');
+      const raids = allEncounters.filter(e => e.type === 'raid');
+      const dungeons = allEncounters.filter(e => e.type === 'dungeon');
+
+      let html = `<h2 style="margin-bottom: 4px;">${esc(reportTitle)}</h2>
+        <p style="color: #7d8590; font-size: 0.85rem; margin-bottom: 16px;">${allEncounters.length} encounter${allEncounters.length !== 1 ? 's' : ''} found</p>`;
+
+      if (raids.length) {
+        html += `<div class="encounter-section-title">Raid Bosses</div><div class="encounter-list">`;
+        for (const enc of raids) {
+          html += renderEncounterCard(enc);
+        }
+        html += '</div>';
+      }
+
+      if (dungeons.length) {
+        html += `<div class="encounter-section-title">Mythic+ Dungeons</div><div class="encounter-list">`;
+        for (const enc of dungeons) {
+          html += renderEncounterCard(enc);
+        }
+        html += '</div>';
+      }
+
+      container.innerHTML = html;
+    }
+
+    function renderEncounterCard(enc) {
+      const icon = enc.is_killed
+        ? '<span class="encounter-icon killed">&#10003;</span>'
+        : '<span class="encounter-icon not-killed">&#10007;</span>';
+
+      let statsHtml = '';
+      if (enc.kills > 0) {
+        statsHtml += `<span class="enc-kills">${enc.kills} kill${enc.kills > 1 ? 's' : ''}</span>`;
+      }
+      if (enc.wipes > 0) {
+        statsHtml += `<span class="enc-wipes">${enc.wipes} wipe${enc.wipes > 1 ? 's' : ''}</span>`;
+      }
+      if (enc.best_duration_ms > 0) {
+        statsHtml += `<span class="enc-duration">(${enc.best_duration_display})</span>`;
+      }
+
+      return `
+        <div class="encounter-card" onclick="analyzeEncounter('${esc(enc.name).replace(/'/g, "\\'")}')">
+          ${icon}
+          <span class="encounter-name">${esc(enc.name)}</span>
+          <div class="encounter-stats">
+            <span>${enc.pulls} pull${enc.pulls !== 1 ? 's' : ''}</span>
+            ${statsHtml}
+          </div>
+        </div>`;
+    }
+
     // ── UI helpers ──────────────────────────────────────────────────────
 
     function showStatus(msg, type) {
@@ -338,23 +505,17 @@
       document.getElementById('status').className = 'status';
     }
 
-    function showSessionUI() {
-      document.getElementById('refresh-btn').style.display = '';
-      document.getElementById('refresh-controls').classList.add('visible');
-      document.getElementById('tab-bar').classList.add('visible');
-    }
-
     function resetUI() {
       sessionId = null;
       allPulls = [];
-      document.getElementById('refresh-btn').style.display = 'none';
-      document.getElementById('refresh-controls').classList.remove('visible');
-      document.getElementById('tab-bar').classList.remove('visible');
+      allEncounters = [];
+      currentView = 'input';
+      hideAnalysisView();
+      document.getElementById('encounter-overview').style.display = 'none';
       document.getElementById('tab-latest').innerHTML = '';
       document.getElementById('tab-all').innerHTML = '';
       document.getElementById('tab-stats').innerHTML = '';
-      if (autoRefreshHandle) { clearInterval(autoRefreshHandle); autoRefreshHandle = null; }
-      document.getElementById('auto-refresh').checked = false;
+      stopAutoRefresh();
     }
 
     function flashIndicator(msg) {
@@ -391,6 +552,28 @@
       renderAllPulls();
     }
 
+    // ── VOD / WCL link helper ───────────────────────────────────────────
+
+    function vodOrWclLink(d) {
+      if (d.vod_url) {
+        return `<a href="${d.vod_url}" target="_blank">&#9654; ${d.vod_time}</a>`;
+      }
+      if (d.wcl_url) {
+        return `<a href="${d.wcl_url}" target="_blank" class="wcl-link">View in Log &#8599;</a>`;
+      }
+      return '&mdash;';
+    }
+
+    function vodOrWclLinkWipe(w) {
+      if (w.vod_url) {
+        return `<a href="${w.vod_url}" target="_blank">Watch in VOD &#9654;</a>`;
+      }
+      if (w.wcl_url) {
+        return `<a href="${w.wcl_url}" target="_blank" class="wcl-link">View in Log &#8599;</a>`;
+      }
+      return '';
+    }
+
     // ── Latest Pull tab ─────────────────────────────────────────────────
 
     function renderLatestPull() {
@@ -405,13 +588,15 @@
         ? '<span class="kill-badge">Kill</span>'
         : '<span class="wipe-badge">Wipe</span>';
 
+      const phaseHtml = pull.phase_reached
+        ? `<span class="pull-phase">${pull.phase_reached}</span>` : '';
+
       let causeBlock = '';
       if (pull.is_kill) {
         causeBlock = `<div class="latest-kill-box"><div class="kill-title">Boss Killed!</div></div>`;
       } else if (pull.wipe) {
         const ctx = pull.wipe.context ? `<div class="wipe-context">${esc(pull.wipe.context)}</div>` : '';
-        const vodLink = pull.wipe.vod_url
-          ? `<a href="${pull.wipe.vod_url}" target="_blank">Watch in VOD &#9654;</a>` : '';
+        const link = vodOrWclLinkWipe(pull.wipe);
         causeBlock = `
           <div class="latest-wipe-box">
             <div class="wipe-title">${esc(pull.wipe.cause_label)}</div>
@@ -419,12 +604,11 @@
             ${ctx}
             <div class="wipe-meta">
               <span>at ${pull.wipe.timestamp_display} into pull</span>
-              ${vodLink}
+              ${link}
             </div>
           </div>`;
       }
 
-      // Combined death timeline
       const allDeaths = [...(pull.early_deaths || []), ...(pull.wipe_deaths || [])];
       allDeaths.sort((a, b) => a.fight_relative_ms - b.fight_relative_ms);
 
@@ -434,14 +618,14 @@
           <div class="detail-section">
             <h3>Death Timeline (${allDeaths.length} deaths)</h3>
             <table class="death-table">
-              <tr><th>#</th><th>Player</th><th>Time</th><th>Killed By</th><th>VOD</th></tr>
+              <tr><th>#</th><th>Player</th><th>Time</th><th>Killed By</th><th></th></tr>
               ${allDeaths.map(d => `
                 <tr style="${d.is_wipe_death ? 'background:#1c121488' : ''}">
                   <td class="timestamp">${d.death_order}</td>
                   <td class="player">${esc(d.player)}</td>
                   <td class="timestamp">${d.timestamp_display}</td>
                   <td class="cause" title="${esc(d.cause_description)}">${abilityLink(d.killing_ability, d.killing_ability_id)}</td>
-                  <td>${d.vod_url ? `<a href="${d.vod_url}" target="_blank">&#9654; ${d.vod_time}</a>` : '&mdash;'}</td>
+                  <td>${vodOrWclLink(d)}</td>
                 </tr>
               `).join('')}
             </table>
@@ -454,7 +638,7 @@
             <span class="latest-pull-num">#${pull.pull_number}</span>
             <div class="latest-meta">
               <span class="pull-duration">${pull.duration_display}</span>
-              <span class="pull-phase">${pull.phase_reached}</span>
+              ${phaseHtml}
               ${badge}
             </div>
           </div>
@@ -485,16 +669,23 @@
 
       pulls = sortPulls(pulls, currentSort);
 
+      const hasPhases = allPulls.some(p => p.phase_reached);
+
+      let sortOptions = `
+        <option value="pull_number" ${currentSort==='pull_number'?'selected':''}>Pull Order</option>
+        <option value="duration" ${currentSort==='duration'?'selected':''}>Duration</option>
+        <option value="wipe_cause" ${currentSort==='wipe_cause'?'selected':''}>Wipe Cause</option>`;
+      if (hasPhases) {
+        sortOptions += `<option value="phase" ${currentSort==='phase'?'selected':''}>Phase Reached</option>`;
+      }
+
       let html = filterBanner + `
         <div class="results-header">
           <h2>${esc(bossName)} &mdash; ${pulls.length}${currentFilter ? ' matching' : ''} pulls</h2>
           <div class="sort-controls">
             <label>Sort by:</label>
             <select onchange="changeSort(this.value)">
-              <option value="pull_number" ${currentSort==='pull_number'?'selected':''}>Pull Order</option>
-              <option value="duration" ${currentSort==='duration'?'selected':''}>Duration</option>
-              <option value="phase" ${currentSort==='phase'?'selected':''}>Phase Reached</option>
-              <option value="wipe_cause" ${currentSort==='wipe_cause'?'selected':''}>Wipe Cause</option>
+              ${sortOptions}
             </select>
           </div>
         </div>
@@ -506,18 +697,25 @@
           ? '<span class="kill-badge">Kill</span>'
           : '<span class="wipe-badge">Wipe</span>';
         const wipeLabel = pull.wipe ? pull.wipe.cause_label : (pull.is_kill ? 'Kill' : '—');
-        const vodLink = pull.wipe && pull.wipe.vod_url
-          ? `<a href="${pull.wipe.vod_url}" target="_blank">VOD &#9654;</a>` : '';
+        const phaseHtml = pull.phase_reached
+          ? `<span class="pull-phase">${pull.phase_reached}</span>` : '';
+
+        let linkHtml = '';
+        if (pull.wipe) {
+          linkHtml = pull.wipe.vod_url
+            ? `<a href="${pull.wipe.vod_url}" target="_blank">VOD &#9654;</a>`
+            : (pull.wipe.wcl_url ? `<a href="${pull.wipe.wcl_url}" target="_blank" class="wcl-link">Log &#8599;</a>` : '');
+        }
 
         html += `
           <div class="pull-card" id="pull-${pull.pull_number}">
             <div class="pull-header" onclick="togglePull(${pull.pull_number})">
               <span class="pull-num">#${pull.pull_number}</span>
               <span class="pull-duration">${pull.duration_display}</span>
-              <span class="pull-phase">${pull.phase_reached}</span>
+              ${phaseHtml}
               ${badge}
               <span class="pull-wipe-label">${esc(wipeLabel)}</span>
-              <span class="pull-vod-link">${vodLink}</span>
+              <span class="pull-vod-link">${linkHtml}</span>
               <span class="pull-expand">&#9654;</span>
             </div>
             <div class="pull-detail">
@@ -537,6 +735,7 @@
 
       if (pull.wipe) {
         const ctx = pull.wipe.context ? `<div class="wipe-context">${esc(pull.wipe.context)}</div>` : '';
+        const link = vodOrWclLinkWipe(pull.wipe);
         html += `
           <div class="detail-section">
             <h3>Wipe Cause</h3>
@@ -546,7 +745,7 @@
               ${ctx}
               <div class="wipe-meta">
                 <span>at ${pull.wipe.timestamp_display} into pull</span>
-                ${pull.wipe.vod_url ? `<a href="${pull.wipe.vod_url}" target="_blank">Watch in VOD &#9654;</a>` : ''}
+                ${link}
               </div>
             </div>
           </div>
@@ -558,14 +757,14 @@
           <div class="detail-section">
             <h3>Early Deaths (before wipe)</h3>
             <table class="death-table">
-              <tr><th>#</th><th>Player</th><th>Time</th><th>Cause</th><th>VOD</th></tr>
+              <tr><th>#</th><th>Player</th><th>Time</th><th>Cause</th><th></th></tr>
               ${pull.early_deaths.map(d => `
                 <tr>
                   <td class="timestamp">${d.death_order}</td>
                   <td class="player">${esc(d.player)}</td>
                   <td class="timestamp">${d.timestamp_display}</td>
                   <td class="cause" title="${esc(d.cause_description)}">${abilityLink(d.killing_ability, d.killing_ability_id)}</td>
-                  <td>${d.vod_url ? `<a href="${d.vod_url}" target="_blank">&#9654; ${d.vod_time}</a>` : '&mdash;'}</td>
+                  <td>${vodOrWclLink(d)}</td>
                 </tr>
               `).join('')}
             </table>
@@ -578,14 +777,14 @@
           <div class="detail-section">
             <h3>Wipe Deaths</h3>
             <table class="death-table">
-              <tr><th>#</th><th>Player</th><th>Time</th><th>Killed By</th><th>VOD</th></tr>
+              <tr><th>#</th><th>Player</th><th>Time</th><th>Killed By</th><th></th></tr>
               ${pull.wipe_deaths.map(d => `
                 <tr>
                   <td class="timestamp">${d.death_order}</td>
                   <td class="player">${esc(d.player)}</td>
                   <td class="timestamp">${d.timestamp_display}</td>
                   <td class="cause" title="${esc(d.killing_ability)}">${abilityLink(d.killing_ability, d.killing_ability_id)}</td>
-                  <td>${d.vod_url ? `<a href="${d.vod_url}" target="_blank">&#9654; ${d.vod_time}</a>` : '&mdash;'}</td>
+                  <td>${vodOrWclLink(d)}</td>
                 </tr>
               `).join('')}
             </table>
@@ -648,7 +847,6 @@
         : 0;
       const bestPull = [...allPulls].sort((a, b) => b.duration_ms - a.duration_ms)[0];
 
-      // Wipe cause counts
       const wipeCounts = {};
       for (const p of wipes) {
         const label = p.wipe ? p.wipe.cause_label : 'Unknown';
@@ -657,15 +855,17 @@
       const wipeSorted = Object.entries(wipeCounts).sort((a, b) => b[1] - a[1]);
       const maxWipe = wipeSorted.length ? wipeSorted[0][1] : 1;
 
-      // Phase counts
+      const hasPhases = allPulls.some(p => p.phase_reached);
+
       const phaseCounts = {};
       for (const p of allPulls) {
-        phaseCounts[p.phase_reached] = (phaseCounts[p.phase_reached] || 0) + 1;
+        if (p.phase_reached) {
+          phaseCounts[p.phase_reached] = (phaseCounts[p.phase_reached] || 0) + 1;
+        }
       }
       const phaseSorted = Object.entries(phaseCounts).sort((a, b) => b[1] - a[1]);
       const maxPhase = phaseSorted.length ? phaseSorted[0][1] : 1;
 
-      // Per-player early death counts (excludes wipe deaths)
       const playerDeaths = {};
       const playerCauses = {};
       for (const p of allPulls) {
@@ -677,7 +877,6 @@
       }
       const playerSorted = Object.entries(playerDeaths).sort((a, b) => b[1] - a[1]);
 
-      // Top killing abilities (with spell IDs for tooltips)
       const abilityCounts = {};
       const abilityIds = {};
       for (const p of allPulls) {
@@ -690,6 +889,23 @@
       const maxAbility = abilitySorted.length ? abilitySorted[0][1] : 1;
 
       const barColors = ['#58a6ff', '#3fb950', '#f0883e', '#a371f7', '#f85149', '#79c0ff', '#56d364', '#d2a8ff', '#ffa657', '#ff7b72'];
+
+      let phaseSection = '';
+      if (hasPhases) {
+        phaseSection = `
+          <div class="stats-section">
+            <h3>Phase Reached</h3>
+            ${phaseSorted.map(([label, count], i) => `
+              <div class="stat-bar-row">
+                <span class="stat-bar-label">${esc(label)}</span>
+                <div class="stat-bar-track">
+                  <div class="stat-bar-fill" style="width:${(count/maxPhase*100).toFixed(1)}%;background:${barColors[i % barColors.length]}"></div>
+                </div>
+                <span class="stat-bar-count">${count}</span>
+              </div>
+            `).join('')}
+          </div>`;
+      }
 
       container.innerHTML = `
         <div class="stats-grid">
@@ -728,18 +944,7 @@
           `).join('')}
         </div>
 
-        <div class="stats-section">
-          <h3>Phase Reached</h3>
-          ${phaseSorted.map(([label, count], i) => `
-            <div class="stat-bar-row">
-              <span class="stat-bar-label">${esc(label)}</span>
-              <div class="stat-bar-track">
-                <div class="stat-bar-fill" style="width:${(count/maxPhase*100).toFixed(1)}%;background:${barColors[i % barColors.length]}"></div>
-              </div>
-              <span class="stat-bar-count">${count}</span>
-            </div>
-          `).join('')}
-        </div>
+        ${phaseSection}
 
         <div class="stats-section">
           <h3>Top Killing Abilities</h3>
@@ -756,18 +961,20 @@
 
         <div class="stats-section">
           <h3>Early Deaths by Player</h3>
-          <table class="stats-table">
-            <tr><th>Player</th><th>Deaths</th><th>Most Common Cause</th></tr>
-            ${playerSorted.map(([name, count]) => {
-              const causes = playerCauses[name];
-              const topCause = Object.entries(causes).sort((a, b) => b[1] - a[1])[0];
-              return `<tr>
-                <td class="player">${esc(name)}</td>
-                <td>${count}</td>
-                <td class="cause">${esc(topCause[0])} (${topCause[1]})</td>
-              </tr>`;
-            }).join('')}
-          </table>
+          ${playerSorted.length ? `
+            <table class="stats-table">
+              <tr><th>Player</th><th>Deaths</th><th>Most Common Cause</th></tr>
+              ${playerSorted.map(([name, count]) => {
+                const causes = playerCauses[name];
+                const topCause = Object.entries(causes).sort((a, b) => b[1] - a[1])[0];
+                return `<tr>
+                  <td class="player">${esc(name)}</td>
+                  <td>${count}</td>
+                  <td class="cause">${esc(topCause[0])} (${topCause[1]})</td>
+                </tr>`;
+              }).join('')}
+            </table>
+          ` : '<p class="no-deaths">No early deaths recorded.</p>'}
         </div>
       `;
       refreshTooltips();
@@ -800,11 +1007,10 @@
       return `${m}:${s.toString().padStart(2, '0')}`;
     }
 
-    // Enter key submits
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !document.getElementById('analyze-btn').disabled) {
-        if (sessionId) refreshSession();
-        else startSession();
+        if (currentView === 'analysis') refreshSession();
+        else if (!sessionId) startSession();
       }
     });
   </script>

@@ -11,7 +11,6 @@ from datetime import datetime, timedelta, timezone
 import wcl
 import vod
 import bosses
-import bosses.midnight_falls  # registers the boss
 
 
 # ── Reusable building blocks ────────────────────────────────────────────────
@@ -43,6 +42,7 @@ def classify_fights(
     report_start: datetime,
     stream_delay_s: int = 0,
     pull_number_offset: int = 0,
+    report_code: str = "",
 ) -> list[dict]:
     pulls = []
     for i, fight in enumerate(boss_fights):
@@ -69,6 +69,10 @@ def classify_fights(
                 vod_url_str = vod.make_timestamp_url(seg["platform"], seg["video_id"], max(0, vod_secs - 5))
                 vod_time_str = vod.fmt_hms(vod_secs)
 
+            wcl_url_str = ""
+            if not vod_url_str and report_code:
+                wcl_url_str = f"https://www.warcraftlogs.com/reports/{report_code}#fight={fight['id']}&type=deaths"
+
             death_list.append({
                 "player": d.player_name,
                 "timestamp_display": vod.fmt_mmss(d.fight_relative_ms),
@@ -82,6 +86,7 @@ def classify_fights(
                 "is_wipe_death": d.is_wipe_death,
                 "vod_url": vod_url_str,
                 "vod_time": vod_time_str,
+                "wcl_url": wcl_url_str,
             })
 
         wipe_context = ""
@@ -100,6 +105,10 @@ def classify_fights(
                 wipe_vod_url = vod.make_timestamp_url(seg["platform"], seg["video_id"], max(0, wipe_secs - 5))
                 wipe_vod_time = vod.fmt_hms(wipe_secs)
 
+            wipe_wcl_url = ""
+            if not wipe_vod_url and report_code:
+                wipe_wcl_url = f"https://www.warcraftlogs.com/reports/{report_code}#fight={fight['id']}&type=deaths"
+
             wipe_data = {
                 "cause_id": wipe.cause_id,
                 "cause_label": wipe.cause_label,
@@ -108,6 +117,7 @@ def classify_fights(
                 "timestamp_display": vod.fmt_mmss(wipe.timestamp_ms),
                 "vod_url": wipe_vod_url,
                 "vod_time": wipe_vod_time,
+                "wcl_url": wipe_wcl_url,
             }
 
         early_deaths = [d for d in death_list if not d["is_wipe_death"]]
@@ -147,6 +157,44 @@ def get_vod_segments(vod_url: str | None, channel: str | None,
 def filter_boss_fights(report: dict, boss_name: str) -> list[dict]:
     fights = wcl.get_fights_by_boss(report, boss_name)
     return [f for f in fights if f["endTime"] - f["startTime"] >= 3000]
+
+
+def list_encounters(report: dict) -> list[dict]:
+    from collections import defaultdict
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for f in report["fights"]:
+        if f.get("difficulty") is None:
+            continue
+        groups[f["name"]].append(f)
+
+    encounters = []
+    for name, fights in groups.items():
+        kills = [f for f in fights if f.get("kill")]
+        wipes = [f for f in fights if not f.get("kill")]
+        durations = [f["endTime"] - f["startTime"] for f in fights]
+        best_duration = max(durations) if durations else 0
+        difficulty = fights[0].get("difficulty")
+
+        enc_type = "dungeon" if difficulty and difficulty >= 8 else "raid"
+        is_killed = len(kills) > 0
+
+        encounters.append({
+            "name": name,
+            "type": enc_type,
+            "difficulty": difficulty,
+            "pulls": len(fights),
+            "kills": len(kills),
+            "wipes": len(wipes),
+            "is_killed": is_killed,
+            "best_duration_ms": best_duration,
+            "best_duration_display": vod.fmt_mmss(best_duration),
+        })
+
+    raid = [e for e in encounters if e["type"] == "raid"]
+    dungeon = [e for e in encounters if e["type"] == "dungeon"]
+    raid.sort(key=lambda e: min(f["id"] for f in groups[e["name"]]))
+    dungeon.sort(key=lambda e: min(f["id"] for f in groups[e["name"]]))
+    return raid + dungeon
 
 
 def _build_wipe_context(early_deaths: list, healer_ids: set[int], tank_ids: set[int]) -> str:
@@ -192,10 +240,12 @@ def analyze(wcl_url: str, vod_url: str | None = None, channel: str | None = None
 
     vod_segments = get_vod_segments(vod_url, channel, report_start, report_end)
 
-    boss_name = "Midnight Falls"
-    boss_config = bosses.get_boss(boss_name)
-    if not boss_config:
-        return {"error": f"No boss config registered for '{boss_name}'"}
+    encounters = list_encounters(report)
+    if not encounters:
+        return {"error": "No boss or dungeon encounters found in this log"}
+
+    boss_name = encounters[0]["name"]
+    boss_config = bosses.get_boss_or_generic(boss_name)
 
     boss_fights = filter_boss_fights(report, boss_name)
     if not boss_fights:
@@ -212,6 +262,7 @@ def analyze(wcl_url: str, vod_url: str | None = None, channel: str | None = None
         boss_config, boss_fights, death_events, damage_by_fight,
         actors, abilities, tank_ids, healer_ids,
         vod_segments, report_start, stream_delay_s,
+        report_code=code,
     )
 
     return {

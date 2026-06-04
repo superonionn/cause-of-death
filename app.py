@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 import analyzer
@@ -22,9 +22,14 @@ class SessionCreate(BaseModel):
     delay: int = 0
 
 
+class AnalyzeRequest(BaseModel):
+    boss: str
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    return (TEMPLATE_DIR / "index.html").read_text(encoding="utf-8")
+    content = (TEMPLATE_DIR / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(content=content, headers={"Cache-Control": "no-store"})
 
 
 # ── Session-based endpoints (live mode) ─────────────────────────────────────
@@ -39,6 +44,21 @@ async def create_session(body: SessionCreate):
         )
         result["elapsed_seconds"] = round(time.monotonic() - start, 1)
         return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/session/{session_id}/analyze")
+async def analyze_encounter(session_id: str, body: AnalyzeRequest):
+    start = time.monotonic()
+    try:
+        result = session.analyze_encounter(session_id, body.boss)
+        result["elapsed_seconds"] = round(time.monotonic() - start, 1)
+        return result
+    except KeyError as e:
+        return {"error": str(e)}
+    except ValueError as e:
+        return {"error": str(e)}
     except Exception as e:
         return {"error": str(e)}
 
