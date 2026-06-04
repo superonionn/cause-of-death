@@ -71,8 +71,11 @@ def classify_fights(
                 vod_time_str = vod.fmt_hms(vod_secs)
 
             wcl_url_str = ""
-            if not vod_url_str and report_code:
-                wcl_url_str = f"https://www.warcraftlogs.com/reports/{report_code}#fight={fight['id']}&type=deaths"
+            if report_code:
+                wcl_url_str = (
+                    f"https://www.warcraftlogs.com/reports/{report_code}"
+                    f"#fight={fight['id']}&type=deaths&source={d.player_id}"
+                )
 
             death_list.append({
                 "player": d.player_name,
@@ -95,7 +98,7 @@ def classify_fights(
         if wipe:
             early_role_deaths = [d for d in deaths if not d.is_wipe_death]
             wipe_context = _build_wipe_context(early_role_deaths, healer_ids, tank_ids)
-            if is_dungeon:
+            if is_dungeon and wipe.cause_id != "no_battle_res":
                 bres_ctx = _build_bres_context(deaths, healer_ids, tank_ids)
                 if bres_ctx:
                     if wipe_context:

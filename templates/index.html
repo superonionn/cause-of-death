@@ -555,23 +555,17 @@
     // ── VOD / WCL link helper ───────────────────────────────────────────
 
     function vodOrWclLink(d) {
-      if (d.vod_url) {
-        return `<a href="${d.vod_url}" target="_blank">&#9654; ${d.vod_time}</a>`;
-      }
-      if (d.wcl_url) {
-        return `<a href="${d.wcl_url}" target="_blank" class="wcl-link">View in Log &#8599;</a>`;
-      }
-      return '&mdash;';
+      let parts = [];
+      if (d.vod_url) parts.push(`<a href="${d.vod_url}" target="_blank">&#9654; ${d.vod_time}</a>`);
+      if (d.wcl_url) parts.push(`<a href="${d.wcl_url}" target="_blank" class="wcl-link">Log &#8599;</a>`);
+      return parts.length ? parts.join(' ') : '&mdash;';
     }
 
     function vodOrWclLinkWipe(w) {
-      if (w.vod_url) {
-        return `<a href="${w.vod_url}" target="_blank">Watch in VOD &#9654;</a>`;
-      }
-      if (w.wcl_url) {
-        return `<a href="${w.wcl_url}" target="_blank" class="wcl-link">View in Log &#8599;</a>`;
-      }
-      return '';
+      let parts = [];
+      if (w.vod_url) parts.push(`<a href="${w.vod_url}" target="_blank">Watch in VOD &#9654;</a>`);
+      if (w.wcl_url) parts.push(`<a href="${w.wcl_url}" target="_blank" class="wcl-link">View in Log &#8599;</a>`);
+      return parts.join(' ');
     }
 
     // ── Latest Pull tab ─────────────────────────────────────────────────

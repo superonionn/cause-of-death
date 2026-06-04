@@ -38,6 +38,8 @@ class GenericBoss:
         fight_end = fight["endTime"]
         is_kill = bool(fight.get("kill"))
         tank_ids = tank_ids or set()
+        healer_ids = healer_ids or set()
+        is_dungeon = fight.get("difficulty", 0) >= 8
 
         fight_deaths = []
         for e in death_events:
@@ -69,10 +71,17 @@ class GenericBoss:
         for i, d in enumerate(fight_deaths):
             d["death_order"] = i + 1
 
+        death_counts: dict[int, int] = {}
+        for d in fight_deaths:
+            death_counts[d["player_id"]] = death_counts.get(d["player_id"], 0) + 1
+        bres_pids = {pid for pid, count in death_counts.items() if count > 1}
+
         wipe = None
         wipe_death_ids: set[int] = set()
         if not is_kill and fight_deaths:
-            wipe, wipe_death_ids = self._classify_wipe(fight_deaths, tank_ids)
+            wipe, wipe_death_ids = self._classify_wipe(
+                fight_deaths, tank_ids, healer_ids, bres_pids, is_dungeon,
+            )
 
         deaths = []
         for d in fight_deaths:
@@ -97,7 +106,12 @@ class GenericBoss:
         self,
         fight_deaths: list[dict],
         tank_ids: set[int],
+        healer_ids: set[int] | None = None,
+        bres_pids: set[int] | None = None,
+        is_dungeon: bool = False,
     ) -> tuple[WipeInfo, set[int]]:
+        healer_ids = healer_ids or set()
+        bres_pids = bres_pids or set()
         wipe_cluster = self._get_wipe_cluster(fight_deaths)
         wipe_death_ids = {d["death_order"] for d in wipe_cluster}
         wipe_time = wipe_cluster[0]["fight_relative_ms"] if wipe_cluster else fight_deaths[-1]["fight_relative_ms"]
@@ -113,7 +127,15 @@ class GenericBoss:
         if result:
             return result
 
-        # Tank death cascade: tank dies, 3+ follow within 10s
+        # No battle res: healer dies without res, tank dies after (dungeon only)
+        if is_dungeon and bres_pids:
+            result = self._detect_no_bres(
+                fight_deaths, wipe_time, wipe_death_ids, tank_ids, healer_ids, bres_pids,
+            )
+            if result:
+                return result
+
+        # Tank death cascade: tank dies, 3+ follow within 15s
         result = self._detect_tank_cascade(wipe_cluster, wipe_death_ids, wipe_time, tank_ids)
         if result:
             return result
@@ -186,6 +208,40 @@ class GenericBoss:
                                 f"Tank ({d['player_name']}) died to {d['ability_name']}, causing a cascade wipe",
                                 wipe_time), wipe_death_ids
         return None
+
+    def _detect_no_bres(self, fight_deaths, wipe_time, wipe_death_ids,
+                        tank_ids, healer_ids, bres_pids):
+        if not healer_ids or not tank_ids:
+            return None
+
+        healer_deaths = [d for d in fight_deaths if d["player_id"] in healer_ids]
+        if not healer_deaths:
+            return None
+
+        last_healer_death = healer_deaths[-1]
+
+        tank_after = any(
+            d["player_id"] in tank_ids
+            and d["fight_relative_ms"] > last_healer_death["fight_relative_ms"]
+            for d in fight_deaths
+        )
+        if not tank_after:
+            return None
+
+        seen: set[int] = set()
+        bres_names = []
+        for d in fight_deaths:
+            if d["player_id"] in bres_pids and d["player_id"] not in seen:
+                bres_names.append(d["player_name"])
+                seen.add(d["player_id"])
+
+        desc = (
+            f"Healer {last_healer_death['player_name']} died to "
+            f"{last_healer_death['ability_name']} with no battle res "
+            f"— res was used on {', '.join(bres_names)}"
+        )
+
+        return WipeInfo("no_battle_res", "No Battle Res", desc, wipe_time), wipe_death_ids
 
     def _get_wipe_cluster(self, fight_deaths: list[dict]) -> list[dict]:
         if not fight_deaths:
