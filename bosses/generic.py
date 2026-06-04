@@ -32,6 +32,7 @@ class GenericBoss:
         actors: dict[int, dict],
         abilities: dict[int, dict],
         tank_ids: set[int] | None = None,
+        healer_ids: set[int] | None = None,
     ) -> tuple[list[DeathInfo], WipeInfo | None]:
         fight_start = fight["startTime"]
         fight_end = fight["endTime"]
@@ -157,8 +158,14 @@ class GenericBoss:
         for ability, deaths in ability_groups.items():
             if len(deaths) < 3:
                 continue
-            times = [d["fight_relative_ms"] for d in deaths]
-            if max(times) - min(times) <= 5_000:
+            times = sorted(d["fight_relative_ms"] for d in deaths)
+            best = 0
+            for i in range(len(times)):
+                j = i
+                while j < len(times) and times[j] - times[i] <= 5_000:
+                    j += 1
+                best = max(best, j - i)
+            if best >= 3:
                 return WipeInfo(ability.lower().replace(" ", "_"),
                                 f"{ability}",
                                 f"{ability} killed {len(deaths)} players simultaneously",
@@ -173,7 +180,7 @@ class GenericBoss:
                 continue
             cascade = [x for x in wipe_cluster
                        if x["fight_relative_ms"] > d["fight_relative_ms"]
-                       and x["fight_relative_ms"] <= d["fight_relative_ms"] + 10_000]
+                       and x["fight_relative_ms"] <= d["fight_relative_ms"] + 15_000]
             if len(cascade) >= 3:
                 return WipeInfo("tank_death", "Tank Death",
                                 f"Tank ({d['player_name']}) died to {d['ability_name']}, causing a cascade wipe",

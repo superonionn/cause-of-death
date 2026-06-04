@@ -56,6 +56,7 @@ def classify_fights(
 
         deaths, wipe = boss_config.classify_pull(
             fight, fight_deaths, fight_damage, actors, abilities, tank_ids,
+            healer_ids=healer_ids,
         )
 
         death_list = []
@@ -89,10 +90,18 @@ def classify_fights(
                 "wcl_url": wcl_url_str,
             })
 
+        is_dungeon = fight.get("difficulty", 0) >= 8
         wipe_context = ""
         if wipe:
             early_role_deaths = [d for d in deaths if not d.is_wipe_death]
             wipe_context = _build_wipe_context(early_role_deaths, healer_ids, tank_ids)
+            if is_dungeon:
+                bres_ctx = _build_bres_context(deaths, healer_ids, tank_ids)
+                if bres_ctx:
+                    if wipe_context:
+                        wipe_context += "; " + bres_ctx
+                    else:
+                        wipe_context = "Before the wipe: " + bres_ctx
 
         wipe_data = None
         if wipe:
@@ -224,6 +233,40 @@ def _build_wipe_context(early_deaths: list, healer_ids: set[int], tank_ids: set[
         return ""
 
     return "Before the wipe: " + "; ".join(parts)
+
+
+def _build_bres_context(all_deaths: list, healer_ids: set[int], tank_ids: set[int]) -> str:
+    death_counts: dict[int, int] = {}
+    for d in all_deaths:
+        death_counts[d.player_id] = death_counts.get(d.player_id, 0) + 1
+
+    bres_pids = {pid for pid, count in death_counts.items() if count > 1}
+    if not bres_pids:
+        return ""
+
+    seen: set[int] = set()
+    bres_names = []
+    for d in all_deaths:
+        if d.player_id in bres_pids and d.player_id not in seen:
+            bres_names.append(d.player_name)
+            seen.add(d.player_id)
+
+    unbressed_key = []
+    seen_key: set[int] = set()
+    for d in all_deaths:
+        if d.player_id in bres_pids or d.player_id in seen_key:
+            continue
+        if d.player_id in healer_ids:
+            unbressed_key.append(f"healer {d.player_name}")
+            seen_key.add(d.player_id)
+        elif d.player_id in tank_ids:
+            unbressed_key.append(f"tank {d.player_name}")
+            seen_key.add(d.player_id)
+
+    result = f"battle res used on {', '.join(bres_names)}"
+    if unbressed_key:
+        result += f" — no res for {', '.join(unbressed_key)}"
+    return result
 
 
 # ── One-shot analysis (backward-compatible) ─────────────────────────────────

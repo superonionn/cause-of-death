@@ -593,7 +593,8 @@
 
       let causeBlock = '';
       if (pull.is_kill) {
-        causeBlock = `<div class="latest-kill-box"><div class="kill-title">Boss Killed!</div></div>`;
+        const killText = isCurrentEncounterDungeon() ? 'Dungeon Completed!' : 'Boss Killed!';
+        causeBlock = `<div class="latest-kill-box"><div class="kill-title">${killText}</div></div>`;
       } else if (pull.wipe) {
         const ctx = pull.wipe.context ? `<div class="wipe-context">${esc(pull.wipe.context)}</div>` : '';
         const link = vodOrWclLinkWipe(pull.wipe);
@@ -755,7 +756,7 @@
       if (pull.early_deaths && pull.early_deaths.length > 0) {
         html += `
           <div class="detail-section">
-            <h3>Early Deaths (before wipe)</h3>
+            <h3>${pull.is_kill ? 'Early Deaths' : 'Early Deaths (before wipe)'}</h3>
             <table class="death-table">
               <tr><th>#</th><th>Player</th><th>Time</th><th>Cause</th><th></th></tr>
               ${pull.early_deaths.map(d => `
@@ -981,6 +982,11 @@
     }
 
     // ── Utility ─────────────────────────────────────────────────────────
+
+    function isCurrentEncounterDungeon() {
+      const enc = allEncounters.find(e => e.name === bossName);
+      return enc && enc.type === 'dungeon';
+    }
 
     function abilityLink(name, spellId) {
       if (!spellId) return esc(name);

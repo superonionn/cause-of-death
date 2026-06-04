@@ -199,6 +199,7 @@ class MidnightFalls:
         actors: dict[int, dict],
         abilities: dict[int, dict],
         tank_ids: set[int] | None = None,
+        healer_ids: set[int] | None = None,
     ) -> tuple[list[DeathInfo], WipeInfo | None]:
         fight_start = fight["startTime"]
         fight_end = fight["endTime"]
